@@ -108,11 +108,22 @@ def _render(
         f"- {rel} ({humanize_delta(when, now)})" for rel, when in files[:n_files]
     ] or ["- (no recent file changes)"]
     blocker_lines = [f"- {b}" for b in blockers] or ["- None detected"]
+    # Mtime-only edits inside the window must not read as "0 files changed".
+    edited_in_window = sum(
+        1 for _, when in files if now - when <= timedelta(days=STALE_DAYS)
+    )
+    if status.commits_7d == 0 and not status.files_changed_7d and edited_in_window:
+        activity = f"**Activity (7d):** 0 commits, {edited_in_window} files edited (uncommitted)"
+    else:
+        activity = (
+            f"**Activity (7d):** {status.commits_7d} commits, "
+            f"{len(status.files_changed_7d)} files changed"
+        )
     parts = [
         f"# {name} — Context Summary (generated {now:%Y-%m-%d} by SOMA)",
         "",
         f"**Branch:** {status.branch} | **Last active:** {humanize_delta(status.last_active, now)}",
-        f"**Activity (7d):** {status.commits_7d} commits, {len(status.files_changed_7d)} files changed",
+        activity,
         f"**Confidence:** {confidence}",
         "",
         "## Recent work",
@@ -193,7 +204,8 @@ def _detect_blockers(
         if status.last_active is not None and status.last_active > last_commit:
             blockers.append(
                 "Possible blocker detected: stale branch — no commit since "
-                f"{humanize_delta(last_commit, now)} despite recent file edits"
+                f"{humanize_delta(last_commit, now)}; file edits "
+                f"{humanize_delta(status.last_active, now)} postdate last commit"
             )
     fixes = [
         c

@@ -73,7 +73,11 @@ class TestContextFormat:
             r"^# merops-x — Context Summary \(generated \d{4}-\d{2}-\d{2} by SOMA\)$", first
         )
         assert re.search(r"^\*\*Branch:\*\* \S+ \| \*\*Last active:\*\* .+$", out, re.M)
-        assert re.search(r"^\*\*Activity \(7d\):\*\* \d+ commits, \d+ files changed$", out, re.M)
+        assert re.search(
+            r"^\*\*Activity \(7d\):\*\* \d+ commits, \d+ files (changed|edited \(uncommitted\))$",
+            out,
+            re.M,
+        )
 
     def test_all_required_sections_present(self, tmp_path: Path) -> None:
         out = generate_context("merops-x", rich_repo(tmp_path))
@@ -160,6 +164,15 @@ class TestContextHeuristics:
         out = generate_context("todoed", root)
         assert "Possible blocker detected:" in out
         assert "TODO/FIXME" in out
+
+    def test_uncommitted_edits_not_reported_as_zero_files(self, tmp_path: Path) -> None:
+        root = tmp_path / "quiet"
+        # Commit is 12 days old; write_text left file mtimes at "now" —
+        # the activity line must not contradict the files-in-motion list.
+        make_repo(root, [("a.py", "feat: old work", NOW - timedelta(days=12))])
+        out = generate_context("quiet", root)
+        assert "0 commits, 1 files edited (uncommitted)" in out
+        assert "0 files changed" not in out
 
     def test_heuristics_never_assert_fact(self, tmp_path: Path) -> None:
         root = tmp_path / "stale2"
