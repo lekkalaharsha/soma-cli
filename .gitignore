@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+.claude/build-log.txt
+.pytest_cache/
