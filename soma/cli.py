@@ -11,6 +11,7 @@ from rich.table import Table
 
 from soma.context import generate_context
 from soma.detect import PROJECTS_FILE, find_git_roots, load_registry, register_projects
+from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
 app = typer.Typer(help="SOMA — System Omniscient Memory Agent (v1)")
@@ -96,6 +97,44 @@ def status(
     for s in statuses:
         if s.warning:
             console.print(f"[yellow]{escape(s.name)}: {escape(s.warning)}[/yellow]")
+
+
+@app.command()
+def history(
+    project: Optional[str] = typer.Argument(
+        None, help="Limit the log to one project."
+    ),
+    days: int = typer.Option(7, "--days", help="How many days back to include."),
+    markdown: bool = typer.Option(
+        False, "--markdown", help="Emit markdown for notes/standups."
+    ),
+) -> None:
+    """Show a timestamped activity log per day per project."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project is not None and project not in registry:
+        console.print(
+            f"[red]Unknown project:[/red] {escape(project)}. "
+            "Run [bold]soma status[/bold] to list projects."
+        )
+        raise typer.Exit(code=1)
+
+    day_events = collect_history(registry, days=days, project=project)
+    if markdown:
+        typer.echo(render_markdown(day_events))
+        return
+    if not day_events:
+        console.print(f"No activity in the last {days} day(s).")
+        return
+    for day in sorted(day_events, reverse=True):
+        console.print(f"[bold]{day.isoformat()}[/bold]")
+        for event in day_events[day]:
+            console.print(
+                f"  {event.when:%H:%M}  [cyan]{escape(event.project)}[/cyan]  "
+                f"{escape(event.message)}"
+            )
 
 
 @app.command()
