@@ -1,6 +1,7 @@
 """SOMA v1 CLI entry point. Commands: init, status, history, context."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -9,7 +10,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from soma.context import generate_context
+from soma.context import UnsafeTargetError, generate_context, write_context_file
 from soma.detect import PROJECTS_FILE, find_git_roots, load_registry, register_projects
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
@@ -140,6 +141,11 @@ def history(
 @app.command()
 def context(
     project: str = typer.Argument(..., help="Project name to summarize."),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        help="Keep running: write CLAUDE.md into the repo and regenerate on change.",
+    ),
 ) -> None:
     """Generate a compact LLM-ready context summary for a project."""
     registry = load_registry(PROJECTS_FILE)
@@ -150,8 +156,30 @@ def context(
             "Run [bold]soma status[/bold] to list projects."
         )
         raise typer.Exit(code=1)
-    # Plain echo, not rich: the output is markdown meant to be copy-pasted.
-    typer.echo(generate_context(project, Path(entry["root"])))
+    root = Path(entry["root"])
+    if not watch:
+        # Plain echo, not rich: the output is markdown meant to be copy-pasted.
+        typer.echo(generate_context(project, root))
+        return
+
+    console.print(
+        f"Watching [bold]{escape(project)}[/bold] — regenerating "
+        f"{escape(str(root / 'CLAUDE.md'))} on change. Ctrl+C to stop."
+    )
+    last: Optional[str] = None
+    try:
+        while True:
+            text = generate_context(project, root)
+            if text != last:
+                target = write_context_file(root, text)
+                console.print(f"[green]updated[/green] {escape(str(target))}")
+                last = text
+            time.sleep(5)
+    except UnsafeTargetError as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1)
+    except KeyboardInterrupt:
+        console.print("Stopped.")
 
 
 def _print_deep_view(s: ProjectStatus) -> None:
