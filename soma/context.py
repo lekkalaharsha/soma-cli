@@ -1,0 +1,230 @@
+"""Context generation — `soma context <project>`, THE product.
+
+Renders the strict summary format defined in CLAUDE.md from git history
+plus file mtimes. Blockers are heuristic and always phrased as "detected",
+never asserted. Hard token ceiling: files truncate first, then commits;
+branch, blockers, confidence and focus are never dropped.
+"""
+from __future__ import annotations
+
+import os
+import time
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from soma.filters import is_watched, should_ignore
+from soma.sanitize import redact
+from soma.status import ProjectStatus, get_status, humanize_delta
+
+TOKEN_CEILING = 600
+MAX_FILES = 8
+MAX_COMMITS = 5
+MAX_BLOCKERS = 3
+STALE_DAYS = 7
+FIX_STORM_WINDOW = timedelta(hours=24)
+FIX_STORM_THRESHOLD = 3  # flag when strictly more fix commits than this
+TODO_READ_CAP = 200_000  # bytes per file scanned for TODO/FIXME
+FILE_WALK_BUDGET_S = 0.3
+
+# v1 has no event writer; checked for forward compatibility, git is the source.
+EVENTS_DIR = Path.home() / ".soma" / "events"
+
+
+def estimate_tokens(text: str) -> int:
+    """Cheap token estimate (~4 chars/token for English + markdown)."""
+    return max(1, len(text) // 4)
+
+
+def generate_context(
+    name: str,
+    root: Path,
+    now: datetime | None = None,
+    max_tokens: int = TOKEN_CEILING,
+) -> str:
+    """Build the compact context summary for one project. Never raises on
+    missing data — empty repos and non-git dirs produce valid output."""
+    now = now or datetime.now(timezone.utc)
+    status = get_status(name, root)
+    files = _files_in_motion(root, status.files_changed_7d)
+    if not files:
+        files = _recent_files_by_mtime(root)
+    blockers = _detect_blockers(status, root, files, now)
+    focus = _suggested_focus(status, files)
+    confidence = _confidence(status)
+
+    n_files, n_commits = MAX_FILES, MAX_COMMITS
+    text = _render(name, status, files, blockers, focus, confidence, now, n_files, n_commits)
+    while estimate_tokens(text) > max_tokens and n_files > 0:
+        n_files -= 1
+        text = _render(name, status, files, blockers, focus, confidence, now, n_files, n_commits)
+    while estimate_tokens(text) > max_tokens and n_commits > 1:
+        n_commits -= 1
+        text = _render(name, status, files, blockers, focus, confidence, now, n_files, n_commits)
+    return redact(text)
+
+
+def _render(
+    name: str,
+    status: ProjectStatus,
+    files: list[tuple[str, datetime]],
+    blockers: list[str],
+    focus: str,
+    confidence: str,
+    now: datetime,
+    n_files: int,
+    n_commits: int,
+) -> str:
+    commit_lines = [
+        f"- {c.message} ({humanize_delta(c.when, now)})"
+        for c in status.recent_commits[:n_commits]
+    ] or ["- (no commits found)"]
+    file_lines = [
+        f"- {rel} ({humanize_delta(when, now)})" for rel, when in files[:n_files]
+    ] or ["- (no recent file changes)"]
+    blocker_lines = [f"- {b}" for b in blockers] or ["- None detected"]
+    parts = [
+        f"# {name} — Context Summary (generated {now:%Y-%m-%d} by SOMA)",
+        "",
+        f"**Branch:** {status.branch} | **Last active:** {humanize_delta(status.last_active, now)}",
+        f"**Activity (7d):** {status.commits_7d} commits, {len(status.files_changed_7d)} files changed",
+        f"**Confidence:** {confidence}",
+        "",
+        "## Recent work",
+        *commit_lines,
+        "",
+        "## Files in motion",
+        *file_lines,
+        "",
+        "## Possible blockers",
+        *blocker_lines,
+        "",
+        "## Suggested focus",
+        focus,
+        "",
+    ]
+    return "\n".join(parts)
+
+
+def _files_in_motion(root: Path, candidates: list[str]) -> list[tuple[str, datetime]]:
+    """Attach mtimes to git-changed paths, newest first (deleted files drop out)."""
+    out: list[tuple[str, datetime]] = []
+    for rel in candidates:
+        try:
+            ts = (root / rel).stat().st_mtime
+        except OSError:
+            continue
+        out.append((rel, datetime.fromtimestamp(ts, tz=timezone.utc)))
+    out.sort(key=lambda item: item[1], reverse=True)
+    return out[:MAX_FILES]
+
+
+def _recent_files_by_mtime(root: Path) -> list[tuple[str, datetime]]:
+    """Fallback for non-git/quiet repos: newest watched files by mtime."""
+    deadline = time.monotonic() + FILE_WALK_BUDGET_S
+    found: list[tuple[str, float]] = []
+    _walk_files(str(root), root, deadline, found)
+    found.sort(key=lambda item: item[1], reverse=True)
+    return [
+        (rel, datetime.fromtimestamp(ts, tz=timezone.utc))
+        for rel, ts in found[:MAX_FILES]
+    ]
+
+
+def _walk_files(
+    directory: str, root: Path, deadline: float, found: list[tuple[str, float]]
+) -> None:
+    if time.monotonic() > deadline:
+        return
+    try:
+        with os.scandir(directory) as it:
+            for entry in it:
+                name = entry.name
+                if name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if not should_ignore(name):
+                            _walk_files(entry.path, root, deadline, found)
+                    elif is_watched(name) and not should_ignore(name):
+                        ts = entry.stat(follow_symlinks=False).st_mtime
+                        rel = Path(entry.path).relative_to(root).as_posix()
+                        found.append((rel, ts))
+                except (OSError, ValueError):
+                    continue
+    except OSError:
+        pass
+
+
+def _detect_blockers(
+    status: ProjectStatus,
+    root: Path,
+    files: list[tuple[str, datetime]],
+    now: datetime,
+) -> list[str]:
+    blockers: list[str] = []
+    last_commit = status.recent_commits[0].when if status.recent_commits else None
+    if last_commit is not None and now - last_commit > timedelta(days=STALE_DAYS):
+        if status.last_active is not None and status.last_active > last_commit:
+            blockers.append(
+                "Possible blocker detected: stale branch — no commit since "
+                f"{humanize_delta(last_commit, now)} despite recent file edits"
+            )
+    fixes = [
+        c
+        for c in status.recent_commits
+        if "fix" in c.message.lower() and now - c.when <= FIX_STORM_WINDOW
+    ]
+    if len(fixes) > FIX_STORM_THRESHOLD:
+        blockers.append(
+            f"Possible blocker detected: fix storm — {len(fixes)} fix commits in the last 24h"
+        )
+    blockers.extend(_todo_blockers(root, files))
+    return blockers[:MAX_BLOCKERS]
+
+
+def _todo_blockers(root: Path, files: list[tuple[str, datetime]]) -> list[str]:
+    # Only the path is reported, never file content — content could hold secrets.
+    out: list[str] = []
+    for rel, _ in files[:MAX_FILES]:
+        try:
+            with open(root / rel, encoding="utf-8", errors="ignore") as f:
+                text = f.read(TODO_READ_CAP)
+        except OSError:
+            continue
+        if "TODO" in text or "FIXME" in text:
+            out.append(
+                f"Possible blocker detected: TODO/FIXME in recently modified {rel}"
+            )
+        if len(out) >= 2:
+            break
+    return out
+
+
+def _confidence(status: ProjectStatus) -> str:
+    if status.commits_7d > 0:
+        return "high"
+    if status.recent_commits:
+        return "medium"
+    return "low"
+
+
+def _suggested_focus(
+    status: ProjectStatus, files: list[tuple[str, datetime]]
+) -> str:
+    if status.recent_commits:
+        message = status.recent_commits[0].message
+        top = _top_dir(files)
+        if top:
+            return f'Continue recent work in `{top}/` — last commit: "{message}"'
+        return f'Continue from last commit: "{message}"'
+    if files:
+        return f"Resume editing {files[0][0]} (most recently touched file)"
+    return "No recent activity detected — review project goals before starting"
+
+
+def _top_dir(files: list[tuple[str, datetime]]) -> str | None:
+    dirs = [rel.split("/")[0] for rel, _ in files if "/" in rel]
+    if not dirs:
+        return None
+    return Counter(dirs).most_common(1)[0][0]

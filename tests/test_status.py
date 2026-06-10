@@ -6,79 +6,17 @@ are reused here to exercise the graceful non-git fallback and the perf gate.
 """
 from __future__ import annotations
 
-import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import git
-import pytest
-import tomli_w
 from typer.testing import CliRunner
 
-import soma.cli
+from conftest import NOW, make_repo, set_tree_mtimes, write_registry
 from soma.cli import app
 from soma.status import get_status, humanize_delta
 
 runner = CliRunner()
-
-NOW = datetime.now(timezone.utc)
-
-
-def make_repo(
-    path: Path,
-    commits: list[tuple[str, str, datetime]],
-    branch: str = "main",
-) -> git.Repo:
-    """Create a real git repo with commits at controlled timestamps.
-
-    commits: list of (filename, message, when) — applied oldest first.
-    """
-    path.mkdir(parents=True, exist_ok=True)
-    repo = git.Repo.init(path, initial_branch=branch)
-    with repo.config_writer() as cw:
-        cw.set_value("user", "name", "SOMA Test")
-        cw.set_value("user", "email", "soma@test.local")
-    for filename, message, when in commits:
-        f = path / filename
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(message + "\n")
-        repo.index.add([filename])
-        stamp = f"{int(when.timestamp())} +0000"  # git raw date format
-        repo.index.commit(message, author_date=stamp, commit_date=stamp)
-    return repo
-
-
-def set_tree_mtimes(root: Path, when: datetime) -> None:
-    """Backdate every working-tree file/dir mtime (skips .git internals)."""
-    ts = when.timestamp()
-    for p in root.rglob("*"):
-        if ".git" in p.parts:
-            continue
-        os.utime(p, (ts, ts))
-
-
-def write_registry(registry_path: Path, projects: dict[str, Path]) -> None:
-    data = {
-        "projects": {
-            name: {
-                "root": str(root),
-                "git": True,
-                "registered_at": NOW.isoformat(timespec="seconds"),
-            }
-            for name, root in projects.items()
-        }
-    }
-    registry_path.parent.mkdir(parents=True, exist_ok=True)
-    with registry_path.open("wb") as f:
-        tomli_w.dump(data, f)
-
-
-@pytest.fixture()
-def registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    path = tmp_path / "soma-config" / "projects.toml"
-    monkeypatch.setattr(soma.cli, "PROJECTS_FILE", path)
-    return path
 
 
 class TestStatusData:

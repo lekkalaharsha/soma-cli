@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from soma.context import generate_context
 from soma.detect import PROJECTS_FILE, find_git_roots, load_registry, register_projects
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -95,6 +96,23 @@ def status(
     for s in statuses:
         if s.warning:
             console.print(f"[yellow]{escape(s.name)}: {escape(s.warning)}[/yellow]")
+
+
+@app.command()
+def context(
+    project: str = typer.Argument(..., help="Project name to summarize."),
+) -> None:
+    """Generate a compact LLM-ready context summary for a project."""
+    registry = load_registry(PROJECTS_FILE)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(
+            f"[red]Unknown project:[/red] {escape(project)}. "
+            "Run [bold]soma status[/bold] to list projects."
+        )
+        raise typer.Exit(code=1)
+    # Plain echo, not rich: the output is markdown meant to be copy-pasted.
+    typer.echo(generate_context(project, Path(entry["root"])))
 
 
 def _print_deep_view(s: ProjectStatus) -> None:
