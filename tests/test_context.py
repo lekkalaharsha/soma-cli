@@ -74,7 +74,7 @@ class TestContextFormat:
         )
         assert re.search(r"^\*\*Branch:\*\* \S+ \| \*\*Last active:\*\* .+$", out, re.M)
         assert re.search(
-            r"^\*\*Activity \(7d\):\*\* \d+ commits, \d+ files (changed|edited \(uncommitted\))$",
+            r"^\*\*Activity \(7d\):\*\* \d+ commits, \d+ files? (changed|edited \(uncommitted\))$",
             out,
             re.M,
         )
@@ -171,7 +171,7 @@ class TestContextHeuristics:
         # the activity line must not contradict the files-in-motion list.
         make_repo(root, [("a.py", "feat: old work", NOW - timedelta(days=12))])
         out = generate_context("quiet", root)
-        assert "0 commits, 1 files edited (uncommitted)" in out
+        assert "0 commits, 1 file edited (uncommitted)" in out
         assert "0 files changed" not in out
 
     def test_heuristics_never_assert_fact(self, tmp_path: Path) -> None:

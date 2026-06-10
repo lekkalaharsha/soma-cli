@@ -113,7 +113,10 @@ def _render(
         1 for _, when in files if now - when <= timedelta(days=STALE_DAYS)
     )
     if status.commits_7d == 0 and not status.files_changed_7d and edited_in_window:
-        activity = f"**Activity (7d):** 0 commits, {edited_in_window} files edited (uncommitted)"
+        plural = "file" if edited_in_window == 1 else "files"
+        activity = (
+            f"**Activity (7d):** 0 commits, {edited_in_window} {plural} edited (uncommitted)"
+        )
     else:
         activity = (
             f"**Activity (7d):** {status.commits_7d} commits, "
