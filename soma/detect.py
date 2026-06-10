@@ -1,0 +1,112 @@
+"""Project detection: scan a directory tree for git repository roots.
+
+Uses os.scandir with aggressive pruning (hidden dirs, filter rules, found
+repos) so a ~50k-file home directory scans in well under the 5s gate.
+"""
+from __future__ import annotations
+
+import os
+import tomllib
+from datetime import datetime, timezone
+from pathlib import Path
+
+import tomli_w
+from pydantic import BaseModel
+
+from soma.filters import should_ignore
+
+DEFAULT_MAX_DEPTH = 4
+SOMA_DIR = Path.home() / ".soma"
+PROJECTS_FILE = SOMA_DIR / "projects.toml"
+
+
+class Project(BaseModel):
+    name: str
+    root: str  # absolute path as str — TOML has no path type
+    git: bool = True
+    registered_at: str  # ISO 8601
+
+
+def find_git_roots(base: Path, max_depth: int = DEFAULT_MAX_DEPTH) -> list[Path]:
+    """Return directories under base (inclusive) that contain a .git entry."""
+    roots: list[Path] = []
+    _scan(base.resolve(), depth=0, max_depth=max_depth, roots=roots)
+    return roots
+
+
+def _scan(directory: Path, depth: int, max_depth: int, roots: list[Path]) -> None:
+    try:
+        with os.scandir(directory) as it:
+            entries = list(it)
+    except OSError:  # permission denied, vanished dir, junction loops
+        return
+    if any(e.name == ".git" for e in entries):
+        roots.append(directory)
+        return  # don't descend into repos — nested repos are noise in v1
+    if depth >= max_depth:
+        return
+    for entry in entries:
+        try:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        if entry.name.startswith("."):
+            continue
+        if should_ignore(entry.name):
+            continue
+        _scan(Path(entry.path), depth + 1, max_depth, roots)
+
+
+def load_registry(path: Path = PROJECTS_FILE) -> dict[str, dict]:
+    """Load the [projects] table; empty dict if the file doesn't exist yet."""
+    if not path.exists():
+        return {}
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+    return data.get("projects", {})
+
+
+def register_projects(
+    roots: list[Path], path: Path = PROJECTS_FILE
+) -> tuple[list[Project], list[Project]]:
+    """Merge found roots into the registry. Returns (new, already_known).
+
+    Existing entries are never wiped or overwritten; identity is the root
+    path, and name collisions between different roots get a -N suffix.
+    """
+    registry = load_registry(path)
+    roots_to_name = {entry["root"]: name for name, entry in registry.items()}
+
+    new: list[Project] = []
+    known: list[Project] = []
+    for root in roots:
+        root_str = str(root)
+        if root_str in roots_to_name:
+            name = roots_to_name[root_str]
+            known.append(Project(name=name, **registry[name]))
+            continue
+        name = _unique_name(root.name, registry)
+        project = Project(
+            name=name,
+            root=root_str,
+            git=True,
+            registered_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+        registry[name] = project.model_dump(exclude={"name"})
+        roots_to_name[root_str] = name
+        new.append(project)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as f:
+        tomli_w.dump({"projects": registry}, f)
+    return new, known
+
+
+def _unique_name(base_name: str, registry: dict[str, dict]) -> str:
+    if base_name not in registry:
+        return base_name
+    n = 2
+    while f"{base_name}-{n}" in registry:
+        n += 1
+    return f"{base_name}-{n}"
