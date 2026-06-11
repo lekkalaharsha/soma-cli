@@ -1,6 +1,8 @@
 """SOMA v1 CLI entry point. Commands: init, status, history, context."""
 from __future__ import annotations
 
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -20,17 +22,41 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
-_VERSION = "0.1.0"
+_VERSION = "0.1.1"
 
 
 @app.callback()
 def main(
     ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-V", help="Show version and exit.", is_eager=True),
+    update: bool = typer.Option(False, "--update", help="Upgrade soma-cli via pip and exit.", is_eager=True),
+    uninstall: bool = typer.Option(False, "--uninstall", help="Uninstall soma-cli and exit.", is_eager=True),
 ) -> None:
     """Your repos already remember everything. Now they can tell your AI."""
     if version:
         typer.echo(f"soma-cli {_VERSION}")
+        raise typer.Exit()
+    if update:
+        console.print(f"Upgrading [bold]soma-cli[/bold] (current: {_VERSION})...")
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "soma-cli"],
+            capture_output=False,
+        )
+        if result.returncode != 0:
+            console.print("[red]Upgrade failed.[/red] Is soma-cli on PyPI? Try: pip install --upgrade soma-cli")
+            raise typer.Exit(code=1)
+        raise typer.Exit()
+    if uninstall:
+        typer.confirm("Uninstall soma-cli?", abort=True)
+        purge = typer.confirm("Also delete ~/.soma/ registry data?", default=False)
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "soma-cli"])
+        if purge:
+            import shutil
+            soma_dir = Path.home() / ".soma"
+            if soma_dir.exists():
+                shutil.rmtree(soma_dir)
+                console.print(f"[dim]Removed {soma_dir}[/dim]")
+        console.print("[green]soma-cli uninstalled.[/green]")
         raise typer.Exit()
     if ctx.invoked_subcommand is not None:
         return
