@@ -26,6 +26,7 @@ from soma.detect import (
 from soma.activity import build_activity_data, render_heatmap
 from soma.filters import is_watched, should_ignore
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
+from soma.sanitize import redact
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -554,12 +555,12 @@ def note(
             return
         console.print(f"[bold]Notes for {escape(project)}:[/bold]")
         for n in notes:
-            console.print(f"  [{n.when[:10]}] {escape(n.text)}")
+            console.print(f"  [{n.when[:10]}] {escape(redact(n.text))}")
         return
 
     n = add_note(project, text)
     console.print(
-        f"[green]Note added[/green] to [bold]{escape(project)}[/bold]: {escape(n.text)}"
+        f"[green]Note added[/green] to [bold]{escape(project)}[/bold]: {escape(redact(n.text))}"
     )
     console.print("[dim]Will appear in soma context output.[/dim]")
 
@@ -615,7 +616,7 @@ def briefing(
             f"{age_str:<12} {commits_str}{note_tag}"
         )
         if notes:
-            console.print(f"    [yellow]↳ {escape(notes[0].text)}[/yellow]")
+            console.print(f"    [yellow]↳ {escape(redact(notes[0].text))}[/yellow]")
 
     if active:
         console.print(f"[green]Active[/green] ({len(active)})")

@@ -12,6 +12,8 @@ from git import InvalidGitRepositoryError, NoSuchPathError, Repo
 from git.exc import GitCommandError
 from pydantic import BaseModel
 
+from soma.sanitize import redact
+
 
 class HistoryEvent(BaseModel):
     when: datetime
@@ -71,7 +73,7 @@ def _project_events(name: str, root: Path, days: int) -> list[HistoryEvent]:
             HistoryEvent(
                 when=datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(),
                 project=name,
-                message=message,
+                message=redact(message),  # security gate: no secrets in history output
             )
         )
     return events
