@@ -13,6 +13,7 @@ from conftest import NOW, make_repo, write_registry
 from soma.cli import app
 from soma.context import (
     UnsafeTargetError,
+    _readme_preamble,
     estimate_tokens,
     generate_context,
     write_context_file,
@@ -299,6 +300,40 @@ class TestValidateCommand:
         result = runner.invoke(app, ["validate"])
         assert result.exit_code == 1
         assert "Traceback" not in result.output
+
+
+class TestDescriptionExtraction:
+    def test_description_from_preamble_not_dev_notes(self, tmp_path: Path) -> None:
+        root = tmp_path / "aran"
+        make_repo(root, [("main.py", "feat: init", NOW - timedelta(hours=1))])
+        readme = root / "README.md"
+        readme.write_text(
+            "# Aran ISR\n\nAran is a real-time ISR pipeline for radar data fusion.\n\n"
+            "## Dev Notes\n\n- Added CFAR stage (2024-03)\n- Fixed FFT sign error\n"
+        )
+        out = generate_context("aran", root)
+        assert "ISR pipeline" in out
+        assert "CFAR stage" not in out
+        assert "FFT sign error" not in out
+
+    def test_preamble_stops_at_double_hash(self) -> None:
+        text = "Title\n\nGood description here.\n\n## Dev Notes\n\nBad content.\n"
+        preamble = _readme_preamble(text)
+        assert "Good description" in preamble
+        assert "Bad content" not in preamble
+
+    def test_preamble_passes_full_text_when_no_sections(self) -> None:
+        text = "# Title\n\nOnly a description, no subsections.\n"
+        assert _readme_preamble(text) == text.rstrip("\n")
+
+    def test_pyproject_description_used_when_no_readme(self, tmp_path: Path) -> None:
+        root = tmp_path / "nore"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "nore"\ndescription = "A build tool for embedded firmware."\n'
+        )
+        out = generate_context("nore", root)
+        assert "embedded firmware" in out
 
 
 class TestContextSecurity:

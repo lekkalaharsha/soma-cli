@@ -324,7 +324,7 @@ def _project_description(root: Path) -> str:
                 text = path.read_text(encoding="utf-8", errors="ignore")[:README_READ_CAP]
             except OSError:
                 continue
-            desc = _extract_readme_paragraph(text)
+            desc = _extract_readme_paragraph(_readme_preamble(text))
             if desc:
                 return desc
     pyproject = root / "pyproject.toml"
@@ -345,6 +345,21 @@ def _project_description(root: Path) -> str:
         except Exception:
             pass
     return ""
+
+
+def _readme_preamble(text: str) -> str:
+    """Return README text up to (not including) the first subsection header (##).
+
+    The project description lives in the preamble before any ## sections.
+    Dev notes, changelogs, usage guides etc. all live under ## headers —
+    stopping there avoids pulling them in as the description.
+    """
+    lines: list[str] = []
+    for line in text.splitlines():
+        if re.match(r"^#{2,}", line.strip()):
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _extract_readme_paragraph(text: str) -> str:
