@@ -16,7 +16,7 @@ from pathlib import Path
 
 from soma.filters import is_watched, should_ignore
 from soma.sanitize import redact
-from soma.status import ProjectStatus, get_status, humanize_delta
+from soma.status import CommitInfo, ProjectStatus, get_status, humanize_delta
 
 TOKEN_CEILING = 600
 MAX_FILES = 8
@@ -76,6 +76,7 @@ def generate_context(
     now = now or datetime.now(timezone.utc)
     status = get_status(name, root)
     description = _project_description(root)
+    commit_stats = _fetch_commit_stats(root, MAX_COMMITS)
     files = _files_in_motion(root, status.files_changed_7d)
     if not files:
         files = _recent_files_by_mtime(root)
@@ -84,20 +85,57 @@ def generate_context(
     confidence = _confidence(status)
 
     n_files, n_commits = MAX_FILES, MAX_COMMITS
-    text = _render(name, description, status, files, blockers, focus, confidence, now, n_files, n_commits)
+    text = _render(name, description, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     while estimate_tokens(text) > max_tokens and n_files > 0:
         n_files -= 1
-        text = _render(name, description, status, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     while estimate_tokens(text) > max_tokens and n_commits > 1:
         n_commits -= 1
-        text = _render(name, description, status, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     return redact(text)
+
+
+def _fetch_commit_stats(root: Path, n: int) -> list[tuple[int, int]]:
+    """(insertions, deletions) for the last n commits. Empty list on any error."""
+    try:
+        from git import Repo  # noqa: PLC0415
+        from git.exc import GitCommandError, InvalidGitRepositoryError  # noqa: PLC0415
+
+        repo = Repo(root)
+        out = repo.git.log(f"--max-count={n}", "--pretty=format:COMMIT", "--shortstat")
+    except Exception:
+        return []
+    stats: list[tuple[int, int]] = []
+    ins, dels = 0, 0
+    in_commit = False
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped == "COMMIT":
+            if in_commit:
+                stats.append((ins, dels))
+            ins, dels, in_commit = 0, 0, True
+        elif in_commit and stripped:
+            m_ins = re.search(r"(\d+) insertion", stripped)
+            m_del = re.search(r"(\d+) deletion", stripped)
+            ins += int(m_ins.group(1)) if m_ins else 0
+            dels += int(m_del.group(1)) if m_del else 0
+    if in_commit:
+        stats.append((ins, dels))
+    return stats
+
+
+def _fmt_commit(c: CommitInfo, stats: tuple[int, int] | None, now: datetime) -> str:
+    time_str = humanize_delta(c.when, now)
+    if stats and (stats[0] or stats[1]):
+        return f"- {c.message} (+{stats[0]}/-{stats[1]}) ({time_str})"
+    return f"- {c.message} ({time_str})"
 
 
 def _render(
     name: str,
     description: str,
     status: ProjectStatus,
+    commit_stats: list[tuple[int, int]],
     files: list[tuple[str, datetime]],
     blockers: list[str],
     focus: str,
@@ -107,8 +145,8 @@ def _render(
     n_commits: int,
 ) -> str:
     commit_lines = [
-        f"- {c.message} ({humanize_delta(c.when, now)})"
-        for c in status.recent_commits[:n_commits]
+        _fmt_commit(c, commit_stats[i] if i < len(commit_stats) else None, now)
+        for i, c in enumerate(status.recent_commits[:n_commits])
     ] or ["- (no commits found)"]
     file_lines = [
         f"- {rel} ({humanize_delta(when, now)})" for rel, when in files[:n_files]

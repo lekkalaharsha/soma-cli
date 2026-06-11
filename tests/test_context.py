@@ -183,6 +183,14 @@ class TestContextHeuristics:
                 "- Possible blocker detected:"
             ), line
 
+    def test_commit_lines_include_diff_stats(self, tmp_path: Path) -> None:
+        out = generate_context("merops-x", rich_repo(tmp_path))
+        commit_lines = section_lines(out, "## Recent work")
+        assert commit_lines, "no commit lines"
+        # At least one commit should have +/- stats (repo has real file changes)
+        has_stats = any(re.search(r"\(\+\d+/-\d+\)", line) for line in commit_lines)
+        assert has_stats, f"no diff stats in commit lines: {commit_lines}"
+
     def test_top_dir_skips_tests_and_docs(self, tmp_path: Path) -> None:
         root = tmp_path / "myproj"
         commits = [
