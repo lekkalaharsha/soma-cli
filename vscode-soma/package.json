@@ -1,0 +1,85 @@
+{
+  "name": "soma-vscode",
+  "displayName": "SOMA — Project Memory",
+  "description": "Live git project context in your sidebar. Click to copy into any AI chat.",
+  "version": "0.1.0",
+  "publisher": "aranrobotics",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aranrobotics-prog/soma-cli"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["git", "context", "ai", "llm", "soma"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "soma-sidebar",
+          "title": "SOMA",
+          "icon": "$(git-branch)"
+        }
+      ]
+    },
+    "views": {
+      "soma-sidebar": [
+        {
+          "type": "webview",
+          "id": "soma.briefing",
+          "name": "Briefing"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "soma.copyContext",
+        "title": "SOMA: Copy Context",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "soma.openBriefing",
+        "title": "SOMA: Open Briefing",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "soma.refreshBriefing",
+        "title": "SOMA: Refresh Briefing",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "soma.refreshBriefing",
+          "when": "view == soma.briefing",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SOMA",
+      "properties": {
+        "soma.executablePath": {
+          "type": "string",
+          "default": "soma",
+          "description": "Path to the soma CLI executable."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
