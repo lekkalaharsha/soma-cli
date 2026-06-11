@@ -247,6 +247,27 @@ class TestContextFallback:
         assert result.exit_code == 0, result.output
         assert "# merops-x — Context Summary" in result.output
 
+    def test_copy_flag_falls_back_on_no_clipboard(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        monkeypatch.setattr(cli_mod, "_copy_to_clipboard", lambda text: False)
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        result = runner.invoke(app, ["context", "merops-x", "--copy"])
+        assert result.exit_code == 0, result.output
+        # Falls back to printing the context
+        assert "# merops-x — Context Summary" in result.output
+
+    def test_copy_flag_succeeds(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        copied: list[str] = []
+        monkeypatch.setattr(cli_mod, "_copy_to_clipboard", lambda text: copied.append(text) or True)
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        result = runner.invoke(app, ["context", "merops-x", "--copy"])
+        assert result.exit_code == 0, result.output
+        assert "Copied" in result.output
+        assert copied and "# merops-x — Context Summary" in copied[0]
+
 
 class TestWatchWrite:
     def test_writes_claude_md_into_repo(self, tmp_path: Path) -> None:

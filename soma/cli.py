@@ -200,6 +200,26 @@ def history(
             )
 
 
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy text to system clipboard. Returns True on success."""
+    import platform
+    plat = platform.system()
+    try:
+        if plat == "Windows":
+            subprocess.run(["clip"], input=text.encode("utf-16-le"), check=True, capture_output=True)
+        elif plat == "Darwin":
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, capture_output=True)
+        else:
+            # Linux: try xclip then xsel
+            try:
+                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode("utf-8"), check=True, capture_output=True)
+            except FileNotFoundError:
+                subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode("utf-8"), check=True, capture_output=True)
+        return True
+    except Exception:
+        return False
+
+
 @app.command()
 def context(
     project: str = typer.Argument(..., help="Project name to summarize."),
@@ -207,6 +227,11 @@ def context(
         False,
         "--watch",
         help="Keep running: write CLAUDE.md into the repo and regenerate on change.",
+    ),
+    copy: bool = typer.Option(
+        False,
+        "--copy",
+        help="Copy output to clipboard instead of printing.",
     ),
 ) -> None:
     """Generate a compact LLM-ready context summary for a project."""
@@ -223,8 +248,16 @@ def context(
         raise typer.Exit(code=1)
     root = Path(entry["root"])
     if not watch:
-        # Plain echo, not rich: the output is markdown meant to be copy-pasted.
-        typer.echo(generate_context(project, root))
+        text = generate_context(project, root)
+        if copy:
+            if _copy_to_clipboard(text):
+                console.print(f"[green]Copied[/green] context for [bold]{escape(project)}[/bold] to clipboard.")
+            else:
+                console.print("[yellow]Clipboard unavailable.[/yellow] Printing instead:")
+                typer.echo(text)
+        else:
+            # Plain echo, not rich: the output is markdown meant to be copy-pasted.
+            typer.echo(text)
         return
 
     console.print(
