@@ -1,6 +1,7 @@
 """SOMA v1 CLI entry point. Commands: init, status, history, context."""
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
@@ -467,6 +468,48 @@ def briefing() -> None:
     if total_notes:
         console.print(f"[yellow]{total_notes} project(s) have pending notes.[/yellow] "
                       "Run [dim]soma note <project> --list[/dim] to review.")
+
+
+@app.command()
+def export(
+    project: Optional[str] = typer.Argument(
+        None, help="Project to export (default: all registered projects)."
+    ),
+    dir: Optional[Path] = typer.Option(
+        None, "--dir", "-d", help="Output directory (default: current directory)."
+    ),
+) -> None:
+    """Export context summaries to markdown files."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if project is not None:
+        if project not in registry:
+            console.print(
+                f"[red]Unknown project:[/red] {escape(project)}. "
+                "Run [bold]soma status[/bold] to list projects."
+            )
+            raise typer.Exit(code=1)
+        targets = {project: registry[project]}
+    else:
+        targets = registry
+
+    out_dir = (dir or Path.cwd()).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    written = 0
+    for name, entry in targets.items():
+        root = Path(entry["root"])
+        text = generate_context(name, root)
+        safe_name = re.sub(r"[^\w\-]", "_", name)
+        dest = out_dir / f"{safe_name}_context.md"
+        dest.write_text(text, encoding="utf-8", newline="\n")
+        console.print(f"[green]wrote[/green] {escape(str(dest))}")
+        written += 1
+
+    console.print(f"\n{written} file(s) exported to {escape(str(out_dir))}")
 
 
 @app.command()

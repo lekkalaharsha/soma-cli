@@ -357,6 +357,36 @@ class TestDescriptionExtraction:
         assert "embedded firmware" in out
 
 
+class TestExportCommand:
+    def test_export_writes_file(self, registry: Path, tmp_path: Path) -> None:
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        out_dir = tmp_path / "export"
+        result = runner.invoke(app, ["export", "--dir", str(out_dir)])
+        assert result.exit_code == 0, result.output
+        exported = list(out_dir.glob("*.md"))
+        assert len(exported) == 1
+        assert "merops" in exported[0].name
+        assert "# merops-x — Context Summary" in exported[0].read_text(encoding="utf-8")
+
+    def test_export_single_project(self, registry: Path, tmp_path: Path) -> None:
+        root = rich_repo(tmp_path)
+        root2 = make_repo(tmp_path / "other", [("b.py", "feat: b", NOW - timedelta(hours=1))])
+        write_registry(registry, {"merops-x": root, "other": root2})
+        out_dir = tmp_path / "export2"
+        result = runner.invoke(app, ["export", "merops-x", "--dir", str(out_dir)])
+        assert result.exit_code == 0, result.output
+        exported = list(out_dir.glob("*.md"))
+        assert len(exported) == 1
+
+    def test_export_unknown_project_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["export", "ghost"])
+        assert result.exit_code == 1
+        assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+
 class TestContextSecurity:
     def test_credentials_in_commit_messages_redacted(self, tmp_path: Path) -> None:
         root = tmp_path / "leaky"
