@@ -1,6 +1,7 @@
 """SOMA v1 CLI entry point. Commands: init, status, history, context."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -22,6 +23,8 @@ from soma.detect import (
     is_archived, load_registry, projects_by_tag, register_projects,
     remove_tag, rename_project, set_archived,
 )
+from soma.activity import build_activity_data, render_heatmap
+from soma.filters import is_watched, should_ignore
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
@@ -129,8 +132,11 @@ def status(
     project: Optional[str] = typer.Argument(
         None, help="Project name for a deep view (default: all projects)."
     ),
+    json_out: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
 ) -> None:
     """Show activity status for all projects, or a deep view of one."""
+    import json as _json
+
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
@@ -144,10 +150,18 @@ def status(
                 "Run [bold]soma status[/bold] to list projects."
             )
             raise typer.Exit(code=1)
-        _print_deep_view(get_status_safe(project, Path(entry["root"])))
+        s = get_status_safe(project, Path(entry["root"]))
+        if json_out:
+            typer.echo(_json.dumps(_status_to_dict(s), indent=2))
+            return
+        _print_deep_view(s)
         return
 
     statuses = collect_statuses(registry)
+    if json_out:
+        typer.echo(_json.dumps([_status_to_dict(s) for s in statuses], indent=2))
+        return
+
     table = Table(title=f"SOMA — {len(statuses)} project(s)")
     table.add_column("Project", style="bold")
     table.add_column("Last Active")
@@ -331,17 +345,31 @@ def context(
 
     console.print(
         f"Watching [bold]{escape(project)}[/bold] — regenerating "
-        f"{escape(str(root / 'CLAUDE.md'))} on change. Ctrl+C to stop."
+        f"{escape(str(root / 'CLAUDE.md'))} on change (3s quiet window). Ctrl+C to stop."
     )
-    last: Optional[str] = None
+    last_text: Optional[str] = None
+    prev_mtimes: dict[str, float] = {}
+    dirty_since: float | None = None
+    _DEBOUNCE_S = 3.0
+    _POLL_S = 0.5
     try:
         while True:
-            text = generate_context(project, root)
-            if text != last:
-                target = write_context_file(root, text)
-                console.print(f"[green]updated[/green] {escape(str(target))}")
-                last = text
-            time.sleep(5)
+            current_mtimes = _collect_mtimes(root)
+            if current_mtimes != prev_mtimes:
+                prev_mtimes = current_mtimes
+                dirty_since = time.monotonic()
+            if dirty_since is not None and time.monotonic() - dirty_since >= _DEBOUNCE_S:
+                dirty_since = None
+                try:
+                    text = generate_context(project, root)
+                except Exception:
+                    time.sleep(_POLL_S)
+                    continue
+                if text != last_text:
+                    target = write_context_file(root, text)
+                    console.print(f"[green]updated[/green] {escape(str(target))}")
+                    last_text = text
+            time.sleep(_POLL_S)
     except UnsafeTargetError as exc:
         console.print(f"[red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1)
@@ -1114,6 +1142,78 @@ def hook_remove(
 
     hook_path.unlink()
     console.print(f"[green]Removed[/green] soma hook from [bold]{escape(project)}[/bold].")
+
+
+@app.command()
+def activity(
+    days: int = typer.Option(30, "--days", "-d", help="Number of days to include (default: 30)."),
+    show_all: bool = typer.Option(False, "--all", help="Include archived projects."),
+) -> None:
+    """ASCII activity heatmap — commit frequency across all projects."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if days < 1 or days > 365:
+        console.print("[red]--days must be between 1 and 365.[/red]")
+        raise typer.Exit(code=1)
+
+    visible = {
+        n: e for n, e in registry.items()
+        if show_all or not e.get("archived", False)
+    }
+    if not visible:
+        console.print("[dim]No projects to show.[/dim]")
+        raise typer.Exit(code=1)
+
+    with console.status(f"Fetching activity for {len(visible)} project(s)..."):
+        rows, date_range = build_activity_data(visible, days=days)
+
+    typer.echo(render_heatmap(rows, date_range))
+
+
+def _collect_mtimes(root: Path, max_depth: int = 3) -> dict[str, float]:
+    """Return {abs_path: mtime} for watched files under root (for debounce)."""
+    result: dict[str, float] = {}
+    _mtime_walk(str(root), root, 0, max_depth, result)
+    return result
+
+
+def _mtime_walk(
+    directory: str, root: Path, depth: int, max_depth: int, result: dict[str, float]
+) -> None:
+    if depth > max_depth:
+        return
+    try:
+        with os.scandir(directory) as it:
+            for e in it:
+                if e.name.startswith("."):
+                    continue
+                try:
+                    if e.is_dir(follow_symlinks=False):
+                        if not should_ignore(e.name):
+                            _mtime_walk(e.path, root, depth + 1, max_depth, result)
+                    elif is_watched(e.name):
+                        result[e.path] = e.stat(follow_symlinks=False).st_mtime
+                except (OSError, ValueError):
+                    continue
+    except OSError:
+        pass
+
+
+def _status_to_dict(s: ProjectStatus) -> dict:
+    return {
+        "name": s.name,
+        "branch": s.branch,
+        "last_active": s.last_active.isoformat() if s.last_active else None,
+        "commits_7d": s.commits_7d,
+        "files_changed_7d": s.files_changed_7d,
+        "recent_commits": [
+            {"message": c.message, "when": c.when.isoformat()} for c in s.recent_commits
+        ],
+        "warning": s.warning,
+    }
 
 
 def _print_deep_view(s: ProjectStatus) -> None:
