@@ -660,6 +660,62 @@ def config_reset(
         )
 
 
+@app.command()
+def search(
+    keyword: str = typer.Argument(..., help="Keyword to search across all project contexts."),
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="Limit search to one project."
+    ),
+    case_sensitive: bool = typer.Option(
+        False, "--case-sensitive", "-c", help="Case-sensitive match (default: case-insensitive)."
+    ),
+) -> None:
+    """Search a keyword across all project context summaries."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if project is not None:
+        if project not in registry:
+            console.print(
+                f"[red]Unknown project:[/red] {escape(project)}. "
+                "Run [bold]soma status[/bold] to list projects."
+            )
+            raise typer.Exit(code=1)
+        targets = {project: registry[project]}
+    else:
+        targets = registry
+
+    flags = 0 if case_sensitive else re.IGNORECASE
+    pattern = re.compile(re.escape(keyword), flags)
+
+    total_hits = 0
+    for name, entry in targets.items():
+        root = Path(entry["root"])
+        try:
+            text = generate_context(name, root)
+        except Exception:
+            continue
+        hits = [line for line in text.splitlines() if pattern.search(line)]
+        if not hits:
+            continue
+        console.print(f"\n[bold cyan]{escape(name)}[/bold cyan]")
+        for line in hits:
+            highlighted = pattern.sub(
+                lambda m: f"[bold yellow]{escape(m.group())}[/bold yellow]",
+                escape(line),
+            )
+            console.print(f"  {highlighted}")
+        total_hits += len(hits)
+
+    if total_hits == 0:
+        console.print(f"[dim]No matches for[/dim] [bold]{escape(keyword)}[/bold].")
+        raise typer.Exit(code=1)
+    else:
+        console.print(f"\n[dim]{total_hits} match(es) across {len(targets)} project(s).[/dim]")
+
+
 def _print_deep_view(s: ProjectStatus) -> None:
     console.print(f"[bold]Project:[/bold]      {escape(s.name)}")
     console.print(f"[bold]Branch:[/bold]       {escape(s.branch)}")

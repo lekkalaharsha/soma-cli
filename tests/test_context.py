@@ -387,6 +387,56 @@ class TestExportCommand:
         assert "Traceback" not in result.output
 
 
+class TestSearchCommand:
+    def test_search_finds_keyword_in_context(self, registry: Path, tmp_path: Path) -> None:
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("src/radar.py", "feat: implement radar fusion pipeline", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha})
+        result = runner.invoke(app, ["search", "radar"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+        assert "radar" in result.output.lower()
+
+    def test_search_no_match_exits_1(self, registry: Path, tmp_path: Path) -> None:
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha})
+        result = runner.invoke(app, ["search", "zzz_no_match_xyz"])
+        assert result.exit_code == 1
+        assert "No matches" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_case_insensitive_by_default(self, registry: Path, tmp_path: Path) -> None:
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("a.py", "feat: implement Radar detection", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha})
+        result = runner.invoke(app, ["search", "RADAR"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+
+    def test_search_limited_to_one_project(self, registry: Path, tmp_path: Path) -> None:
+        alpha, beta = tmp_path / "alpha", tmp_path / "beta"
+        make_repo(alpha, [("a.py", "feat: radar work", NOW - timedelta(hours=1))])
+        make_repo(beta, [("b.py", "feat: radar work", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha, "beta": beta})
+        result = runner.invoke(app, ["search", "radar", "--project", "alpha"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+        assert "beta" not in result.output
+
+    def test_search_unknown_project_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["search", "anything", "--project", "ghost"])
+        assert result.exit_code == 1
+        assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_no_registry_fails(self, registry: Path) -> None:
+        result = runner.invoke(app, ["search", "anything"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.output
+
+
 class TestContextSecurity:
     def test_credentials_in_commit_messages_redacted(self, tmp_path: Path) -> None:
         root = tmp_path / "leaky"
