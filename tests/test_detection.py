@@ -15,7 +15,7 @@ from pathlib import Path
 
 import tomli_w
 
-from soma.detect import Project, find_git_roots, forget_project, register_projects
+from soma.detect import Project, find_git_roots, forget_project, register_projects, rename_project
 
 
 def _names(roots: list[Path]) -> set[str]:
@@ -142,6 +142,19 @@ class TestRegisterProjects:
         with registry_path.open("rb") as f:
             data = tomllib.load(f)
         assert {"repo_c", "repo_deep4"} <= set(data["projects"])
+
+    def test_rename_moves_entry(self, fixture_home: Path, tmp_path: Path) -> None:
+        registry_path = tmp_path / "soma_home" / "projects.toml"
+        register_projects(find_git_roots(fixture_home), path=registry_path)
+        assert rename_project("repo_a", "renamed-a", registry_path) is True
+        with registry_path.open("rb") as f:
+            data = tomllib.load(f)
+        assert "repo_a" not in data["projects"]
+        assert "renamed-a" in data["projects"]
+        assert "repo_b" in data["projects"]  # others untouched
+
+    def test_rename_unknown_returns_false(self, tmp_path: Path) -> None:
+        assert rename_project("ghost", "new-name", tmp_path / "empty.toml") is False
 
     def test_project_model_roundtrip(self) -> None:
         p = Project(

@@ -1,6 +1,7 @@
 """SOMA v1 CLI entry point. Commands: init, status, history, context."""
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
@@ -14,9 +15,10 @@ from rich.table import Table
 
 from datetime import datetime, timedelta, timezone
 
+from soma.config import DEFAULTS, VALID_KEYS, load_config, reset_config, set_config
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
-from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects
-from soma.notes import add_note, clear_notes, load_notes
+from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects, rename_project
+from soma.notes import add_note, clear_notes, load_notes, rename_notes
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -25,7 +27,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
-_VERSION = "0.1.1"
+_VERSION = "0.2.0"
 
 
 @app.callback()
@@ -200,6 +202,51 @@ def history(
             )
 
 
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy text to system clipboard. Returns True on success."""
+    import platform
+    plat = platform.system()
+    try:
+        if plat == "Windows":
+            subprocess.run(["clip"], input=text.encode("utf-16-le"), check=True, capture_output=True)
+        elif plat == "Darwin":
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, capture_output=True)
+        else:
+            # Linux: try xclip then xsel
+            try:
+                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode("utf-8"), check=True, capture_output=True)
+            except FileNotFoundError:
+                subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode("utf-8"), check=True, capture_output=True)
+        return True
+    except Exception:
+        return False
+
+
+def _parse_since(value: str) -> datetime:
+    """Parse '2026-06-01', '7d', '2w', '3h', 'yesterday' → UTC datetime.
+
+    Raises ValueError for unrecognised formats.
+    """
+    now = datetime.now(timezone.utc)
+    v = value.strip().lower()
+    if v == "yesterday":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    m = re.fullmatch(r"(\d+)(d|w|h)", v)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        delta = {"d": timedelta(days=n), "w": timedelta(weeks=n), "h": timedelta(hours=n)}[unit]
+        return now - delta
+    try:
+        dt = datetime.strptime(value.strip(), "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        pass
+    raise ValueError(
+        f"Cannot parse '{value}'. Use YYYY-MM-DD, Nd (days), Nw (weeks), Nh (hours), or 'yesterday'."
+    )
+
+
 @app.command()
 def context(
     project: str = typer.Argument(..., help="Project name to summarize."),
@@ -207,6 +254,16 @@ def context(
         False,
         "--watch",
         help="Keep running: write CLAUDE.md into the repo and regenerate on change.",
+    ),
+    copy: bool = typer.Option(
+        False,
+        "--copy",
+        help="Copy output to clipboard instead of printing.",
+    ),
+    since: Optional[str] = typer.Option(
+        None,
+        "--since",
+        help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday).",
     ),
 ) -> None:
     """Generate a compact LLM-ready context summary for a project."""
@@ -221,10 +278,27 @@ def context(
             "Run [bold]soma status[/bold] to list projects."
         )
         raise typer.Exit(code=1)
+
+    since_dt: datetime | None = None
+    if since:
+        try:
+            since_dt = _parse_since(since)
+        except ValueError as exc:
+            console.print(f"[red]{escape(str(exc))}[/red]")
+            raise typer.Exit(code=1)
+
     root = Path(entry["root"])
     if not watch:
-        # Plain echo, not rich: the output is markdown meant to be copy-pasted.
-        typer.echo(generate_context(project, root))
+        text = generate_context(project, root, since=since_dt)
+        if copy:
+            if _copy_to_clipboard(text):
+                console.print(f"[green]Copied[/green] context for [bold]{escape(project)}[/bold] to clipboard.")
+            else:
+                console.print("[yellow]Clipboard unavailable.[/yellow] Printing instead:")
+                typer.echo(text)
+        else:
+            # Plain echo, not rich: the output is markdown meant to be copy-pasted.
+            typer.echo(text)
         return
 
     console.print(
@@ -256,13 +330,22 @@ _REQUIRED_SECTIONS = (
 _TOKEN_FLOOR = 350
 
 
+_BASELINES_DIR = Path.home() / ".soma" / "baselines"
+
+
 @app.command()
 def validate(
     project: Optional[str] = typer.Argument(
         None, help="Validate one project (default: all registered projects)."
     ),
+    save_baseline: bool = typer.Option(
+        False, "--save-baseline", help="Save current context output as a baseline for future --compare runs."
+    ),
+    compare: bool = typer.Option(
+        False, "--compare", help="Diff current context output against the saved baseline."
+    ),
 ) -> None:
-    """Check context quality for all projects: token budget, format, no secrets."""
+    """Check context quality; optionally save or diff against a baseline."""
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
@@ -280,12 +363,66 @@ def validate(
     else:
         targets = registry
 
+    if save_baseline:
+        _BASELINES_DIR.mkdir(parents=True, exist_ok=True)
+        saved = 0
+        for name, entry in targets.items():
+            root = Path(entry["root"])
+            try:
+                text = generate_context(name, root)
+            except Exception:
+                continue
+            safe = re.sub(r"[^\w\-]", "_", name)
+            (_BASELINES_DIR / f"{safe}.md").write_text(text, encoding="utf-8", newline="\n")
+            saved += 1
+        console.print(f"[green]Saved[/green] {saved} baseline(s) to {escape(str(_BASELINES_DIR))}")
+        return
+
+    if compare:
+        import difflib
+        any_diff = False
+        for name, entry in targets.items():
+            safe = re.sub(r"[^\w\-]", "_", name)
+            baseline_path = _BASELINES_DIR / f"{safe}.md"
+            if not baseline_path.exists():
+                console.print(f"[yellow]{escape(name)}:[/yellow] no baseline — run [dim]soma validate --save-baseline[/dim] first.")
+                continue
+            root = Path(entry["root"])
+            try:
+                current = generate_context(name, root)
+            except Exception as exc:
+                console.print(f"[red]{escape(name)}:[/red] error — {escape(str(exc))}")
+                continue
+            baseline = baseline_path.read_text(encoding="utf-8")
+            diff = list(difflib.unified_diff(
+                baseline.splitlines(), current.splitlines(),
+                fromfile="baseline", tofile="current", lineterm=""
+            ))
+            if not diff:
+                console.print(f"[green]{escape(name)}:[/green] no change")
+            else:
+                any_diff = True
+                console.print(f"\n[bold yellow]{escape(name)}:[/bold yellow] {len(diff)} diff line(s)")
+                for line in diff[2:]:  # skip the --- / +++ header lines
+                    if line.startswith("+"):
+                        console.print(f"  [green]{escape(line)}[/green]")
+                    elif line.startswith("-"):
+                        console.print(f"  [red]{escape(line)}[/red]")
+                    else:
+                        console.print(f"  [dim]{escape(line)}[/dim]")
+        if any_diff:
+            raise typer.Exit(code=1)
+        return
+
     table = Table(title="SOMA — Context validation")
     table.add_column("Project", style="bold", max_width=28, no_wrap=True)
     table.add_column("Tokens", justify="right")
     table.add_column("Format")
     table.add_column("Secrets")
     table.add_column("Status")
+
+    cfg = load_config()
+    effective_ceiling = cfg["token_ceiling"]
 
     any_fail = False
     for name, entry in targets.items():
@@ -306,7 +443,7 @@ def validate(
         )
 
         token_str = str(tokens)
-        if tokens > TOKEN_CEILING:
+        if tokens > effective_ceiling:
             token_str = f"[red]{tokens}[/red]"
             any_fail = True
         elif tokens < _TOKEN_FLOOR:
@@ -315,7 +452,7 @@ def validate(
         fmt_str = "[green]OK[/green]" if fmt_ok else f"[red]missing: {', '.join(missing)}[/red]"
         sec_str = "[green]clean[/green]" if secrets_clean else "[red]LEAK[/red]"
 
-        if not fmt_ok or not secrets_clean or tokens > TOKEN_CEILING:
+        if not fmt_ok or not secrets_clean or tokens > effective_ceiling:
             status_str = "[red]FAIL[/red]"
             any_fail = True
         elif tokens < _TOKEN_FLOOR:
@@ -437,6 +574,75 @@ def briefing() -> None:
 
 
 @app.command()
+def export(
+    project: Optional[str] = typer.Argument(
+        None, help="Project to export (default: all registered projects)."
+    ),
+    dir: Optional[Path] = typer.Option(
+        None, "--dir", "-d", help="Output directory (default: current directory)."
+    ),
+) -> None:
+    """Export context summaries to markdown files."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if project is not None:
+        if project not in registry:
+            console.print(
+                f"[red]Unknown project:[/red] {escape(project)}. "
+                "Run [bold]soma status[/bold] to list projects."
+            )
+            raise typer.Exit(code=1)
+        targets = {project: registry[project]}
+    else:
+        targets = registry
+
+    out_dir = (dir or Path.cwd()).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    written = 0
+    for name, entry in targets.items():
+        root = Path(entry["root"])
+        text = generate_context(name, root)
+        safe_name = re.sub(r"[^\w\-]", "_", name)
+        dest = out_dir / f"{safe_name}_context.md"
+        dest.write_text(text, encoding="utf-8", newline="\n")
+        console.print(f"[green]wrote[/green] {escape(str(dest))}")
+        written += 1
+
+    console.print(f"\n{written} file(s) exported to {escape(str(out_dir))}")
+
+
+@app.command()
+def rename(
+    old: str = typer.Argument(..., help="Current project name."),
+    new: str = typer.Argument(..., help="New project name."),
+) -> None:
+    """Rename a project in the SOMA registry."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if old not in registry:
+        console.print(
+            f"[red]Unknown project:[/red] {escape(old)}. "
+            "Run [bold]soma status[/bold] to list projects."
+        )
+        raise typer.Exit(code=1)
+    if new in registry:
+        console.print(
+            f"[red]Name already taken:[/red] {escape(new)}. "
+            "Choose a different name."
+        )
+        raise typer.Exit(code=1)
+    rename_project(old, new, PROJECTS_FILE)
+    rename_notes(old, new)
+    console.print(f"[green]Renamed[/green] [bold]{escape(old)}[/bold] → [bold]{escape(new)}[/bold].")
+
+
+@app.command()
 def forget(
     project: str = typer.Argument(..., help="Project name to remove from registry."),
 ) -> None:
@@ -454,6 +660,159 @@ def forget(
     forget_project(project, PROJECTS_FILE)
     console.print(f"[green]Removed[/green] [bold]{escape(project)}[/bold] from registry.")
     console.print("[dim]Files on disk untouched. Re-run soma init to re-register.[/dim]")
+
+
+config_app = typer.Typer(help="Manage SOMA configuration.", invoke_without_command=True)
+app.add_typer(config_app, name="config")
+
+
+@config_app.callback()
+def config_default(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        _config_list()
+
+
+@config_app.command("list")
+def config_list() -> None:
+    """Show all config keys with current and default values."""
+    _config_list()
+
+
+def _config_list() -> None:
+    cfg = load_config()
+    table = Table(title="SOMA — Configuration")
+    table.add_column("Key", style="bold")
+    table.add_column("Current", justify="right")
+    table.add_column("Default", justify="right", style="dim")
+    for key in VALID_KEYS:
+        current = cfg[key]
+        default = DEFAULTS[key]
+        val_str = str(current)
+        if current != default:
+            val_str = f"[cyan]{current}[/cyan]"
+        table.add_row(key, val_str, str(default))
+    console.print(table)
+
+
+@config_app.command("get")
+def config_get(
+    key: str = typer.Argument(..., help="Config key to read."),
+) -> None:
+    """Print the current value of a config key."""
+    if key not in VALID_KEYS:
+        console.print(
+            f"[red]Unknown key:[/red] {escape(key)}. "
+            f"Valid: {', '.join(VALID_KEYS)}"
+        )
+        raise typer.Exit(code=1)
+    cfg = load_config()
+    typer.echo(cfg[key])
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Config key to set."),
+    value: str = typer.Argument(..., help="New value (integer)."),
+) -> None:
+    """Set a config key to a new value."""
+    if key not in VALID_KEYS:
+        console.print(
+            f"[red]Unknown key:[/red] {escape(key)}. "
+            f"Valid: {', '.join(VALID_KEYS)}"
+        )
+        raise typer.Exit(code=1)
+    try:
+        int_val = int(value)
+    except ValueError:
+        console.print(f"[red]Value must be an integer, got:[/red] {escape(value)}")
+        raise typer.Exit(code=1)
+    try:
+        set_config(key, int_val)
+    except ValueError as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1)
+    console.print(
+        f"[green]Set[/green] [bold]{escape(key)}[/bold] = {int_val} "
+        f"[dim](was {DEFAULTS[key]})[/dim]"
+    )
+
+
+@config_app.command("reset")
+def config_reset(
+    key: str = typer.Argument(..., help="Config key to reset to default."),
+) -> None:
+    """Reset a config key to its default value."""
+    if key not in VALID_KEYS:
+        console.print(
+            f"[red]Unknown key:[/red] {escape(key)}. "
+            f"Valid: {', '.join(VALID_KEYS)}"
+        )
+        raise typer.Exit(code=1)
+    removed = reset_config(key)
+    if removed:
+        console.print(
+            f"[green]Reset[/green] [bold]{escape(key)}[/bold] → default ({DEFAULTS[key]})"
+        )
+    else:
+        console.print(
+            f"[dim]{escape(key)}[/dim] already at default ({DEFAULTS[key]})"
+        )
+
+
+@app.command()
+def search(
+    keyword: str = typer.Argument(..., help="Keyword to search across all project contexts."),
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="Limit search to one project."
+    ),
+    case_sensitive: bool = typer.Option(
+        False, "--case-sensitive", "-c", help="Case-sensitive match (default: case-insensitive)."
+    ),
+) -> None:
+    """Search a keyword across all project context summaries."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if project is not None:
+        if project not in registry:
+            console.print(
+                f"[red]Unknown project:[/red] {escape(project)}. "
+                "Run [bold]soma status[/bold] to list projects."
+            )
+            raise typer.Exit(code=1)
+        targets = {project: registry[project]}
+    else:
+        targets = registry
+
+    flags = 0 if case_sensitive else re.IGNORECASE
+    pattern = re.compile(re.escape(keyword), flags)
+
+    total_hits = 0
+    for name, entry in targets.items():
+        root = Path(entry["root"])
+        try:
+            text = generate_context(name, root)
+        except Exception:
+            continue
+        hits = [line for line in text.splitlines() if pattern.search(line)]
+        if not hits:
+            continue
+        console.print(f"\n[bold cyan]{escape(name)}[/bold cyan]")
+        for line in hits:
+            highlighted = pattern.sub(
+                lambda m: f"[bold yellow]{escape(m.group())}[/bold yellow]",
+                escape(line),
+            )
+            console.print(f"  {highlighted}")
+        total_hits += len(hits)
+
+    if total_hits == 0:
+        console.print(f"[dim]No matches for[/dim] [bold]{escape(keyword)}[/bold].")
+        raise typer.Exit(code=1)
+    else:
+        console.print(f"\n[dim]{total_hits} match(es) across {len(targets)} project(s).[/dim]")
 
 
 def _print_deep_view(s: ProjectStatus) -> None:

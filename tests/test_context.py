@@ -13,6 +13,7 @@ from conftest import NOW, make_repo, write_registry
 from soma.cli import app
 from soma.context import (
     UnsafeTargetError,
+    _readme_preamble,
     estimate_tokens,
     generate_context,
     write_context_file,
@@ -74,7 +75,7 @@ class TestContextFormat:
         )
         assert re.search(r"^\*\*Branch:\*\* \S+ \| \*\*Last active:\*\* .+$", out, re.M)
         assert re.search(
-            r"^\*\*Activity \(7d\):\*\* \d+ commits, \d+ files? (changed|edited \(uncommitted\))$",
+            r"^\*\*Activity \((7d|since \d{4}-\d{2}-\d{2})\):\*\* \d+ commits, \d+ files? (changed|edited \(uncommitted\))$",
             out,
             re.M,
         )
@@ -171,7 +172,7 @@ class TestContextHeuristics:
         # the activity line must not contradict the files-in-motion list.
         make_repo(root, [("a.py", "feat: old work", NOW - timedelta(days=12))])
         out = generate_context("quiet", root)
-        assert "0 commits, 1 file edited (uncommitted)" in out
+        assert re.search(r"0 commits, 1 file edited \(uncommitted\)", out)
         assert "0 files changed" not in out
 
     def test_heuristics_never_assert_fact(self, tmp_path: Path) -> None:
@@ -246,6 +247,27 @@ class TestContextFallback:
         assert result.exit_code == 0, result.output
         assert "# merops-x — Context Summary" in result.output
 
+    def test_copy_flag_falls_back_on_no_clipboard(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        monkeypatch.setattr(cli_mod, "_copy_to_clipboard", lambda text: False)
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        result = runner.invoke(app, ["context", "merops-x", "--copy"])
+        assert result.exit_code == 0, result.output
+        # Falls back to printing the context
+        assert "# merops-x — Context Summary" in result.output
+
+    def test_copy_flag_succeeds(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        copied: list[str] = []
+        monkeypatch.setattr(cli_mod, "_copy_to_clipboard", lambda text: copied.append(text) or True)
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        result = runner.invoke(app, ["context", "merops-x", "--copy"])
+        assert result.exit_code == 0, result.output
+        assert "Copied" in result.output
+        assert copied and "# merops-x — Context Summary" in copied[0]
+
 
 class TestWatchWrite:
     def test_writes_claude_md_into_repo(self, tmp_path: Path) -> None:
@@ -297,6 +319,203 @@ class TestValidateCommand:
 
     def test_validate_no_registry_error(self, registry: Path) -> None:
         result = runner.invoke(app, ["validate"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.output
+
+
+class TestDescriptionExtraction:
+    def test_description_from_preamble_not_dev_notes(self, tmp_path: Path) -> None:
+        root = tmp_path / "aran"
+        make_repo(root, [("main.py", "feat: init", NOW - timedelta(hours=1))])
+        readme = root / "README.md"
+        readme.write_text(
+            "# Aran ISR\n\nAran is a real-time ISR pipeline for radar data fusion.\n\n"
+            "## Dev Notes\n\n- Added CFAR stage (2024-03)\n- Fixed FFT sign error\n"
+        )
+        out = generate_context("aran", root)
+        assert "ISR pipeline" in out
+        assert "CFAR stage" not in out
+        assert "FFT sign error" not in out
+
+    def test_preamble_stops_at_double_hash(self) -> None:
+        text = "Title\n\nGood description here.\n\n## Dev Notes\n\nBad content.\n"
+        preamble = _readme_preamble(text)
+        assert "Good description" in preamble
+        assert "Bad content" not in preamble
+
+    def test_preamble_passes_full_text_when_no_sections(self) -> None:
+        text = "# Title\n\nOnly a description, no subsections.\n"
+        assert _readme_preamble(text) == text.rstrip("\n")
+
+    def test_pyproject_description_used_when_no_readme(self, tmp_path: Path) -> None:
+        root = tmp_path / "nore"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "nore"\ndescription = "A build tool for embedded firmware."\n'
+        )
+        out = generate_context("nore", root)
+        assert "embedded firmware" in out
+
+
+class TestExportCommand:
+    def test_export_writes_file(self, registry: Path, tmp_path: Path) -> None:
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        out_dir = tmp_path / "export"
+        result = runner.invoke(app, ["export", "--dir", str(out_dir)])
+        assert result.exit_code == 0, result.output
+        exported = list(out_dir.glob("*.md"))
+        assert len(exported) == 1
+        assert "merops" in exported[0].name
+        assert "# merops-x — Context Summary" in exported[0].read_text(encoding="utf-8")
+
+    def test_export_single_project(self, registry: Path, tmp_path: Path) -> None:
+        root = rich_repo(tmp_path)
+        root2 = make_repo(tmp_path / "other", [("b.py", "feat: b", NOW - timedelta(hours=1))])
+        write_registry(registry, {"merops-x": root, "other": root2})
+        out_dir = tmp_path / "export2"
+        result = runner.invoke(app, ["export", "merops-x", "--dir", str(out_dir)])
+        assert result.exit_code == 0, result.output
+        exported = list(out_dir.glob("*.md"))
+        assert len(exported) == 1
+
+    def test_export_unknown_project_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["export", "ghost"])
+        assert result.exit_code == 1
+        assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+
+class TestSinceFlag:
+    def test_since_filters_commits(self, tmp_path: Path) -> None:
+        root = tmp_path / "proj"
+        old = NOW - timedelta(days=20)
+        recent = NOW - timedelta(hours=2)
+        make_repo(root, [
+            ("old.py", "feat: old work", old),
+            ("new.py", "feat: recent work", recent),
+        ])
+        since_dt = NOW - timedelta(days=7)
+        out = generate_context("proj", root, since=since_dt)
+        assert "since" in out
+        assert re.search(r"Activity \(since \d{4}-\d{2}-\d{2}\)", out)
+        # Only the recent commit falls inside the window
+        activity_line = next(l for l in out.splitlines() if l.startswith("**Activity"))
+        assert "1 commits" in activity_line
+
+    def test_since_cli_flag(self, registry: Path, tmp_path: Path) -> None:
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: recent", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        result = runner.invoke(app, ["context", "alpha", "--since", "7d"])
+        assert result.exit_code == 0, result.output
+        assert "since" in result.output
+
+    def test_since_invalid_format_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["context", "alpha", "--since", "notadate"])
+        assert result.exit_code == 1
+        assert "Cannot parse" in result.output
+        assert "Traceback" not in result.output
+
+    def test_since_parse_formats(self) -> None:
+        from soma.cli import _parse_since
+        now = datetime.now(timezone.utc)
+        assert (_parse_since("7d") - (now - timedelta(days=7))).total_seconds() < 2
+        assert (_parse_since("2w") - (now - timedelta(weeks=2))).total_seconds() < 2
+        assert (_parse_since("3h") - (now - timedelta(hours=3))).total_seconds() < 2
+        assert _parse_since("2026-01-15").date().isoformat() == "2026-01-15"
+        assert (_parse_since("yesterday").date()) < now.date()
+
+
+class TestValidateCompare:
+    def test_save_baseline_creates_files(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        baselines_dir = tmp_path / "baselines"
+        monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines_dir)
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        result = runner.invoke(app, ["validate", "--save-baseline"])
+        assert result.exit_code == 0, result.output
+        assert "Saved" in result.output
+        assert (baselines_dir / "alpha.md").exists()
+
+    def test_compare_no_diff_reports_clean(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        baselines_dir = tmp_path / "baselines"
+        baselines_dir.mkdir()
+        monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines_dir)
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        # Save baseline first
+        runner.invoke(app, ["validate", "--save-baseline"])
+        # Compare against itself — no diff
+        result = runner.invoke(app, ["validate", "--compare"])
+        assert result.exit_code == 0, result.output
+        assert "no change" in result.output
+
+    def test_compare_no_baseline_warns(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        baselines_dir = tmp_path / "baselines"
+        baselines_dir.mkdir()
+        monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines_dir)
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        result = runner.invoke(app, ["validate", "--compare"])
+        assert result.exit_code == 0, result.output
+        assert "no baseline" in result.output
+
+
+class TestSearchCommand:
+    def test_search_finds_keyword_in_context(self, registry: Path, tmp_path: Path) -> None:
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("src/radar.py", "feat: implement radar fusion pipeline", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha})
+        result = runner.invoke(app, ["search", "radar"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+        assert "radar" in result.output.lower()
+
+    def test_search_no_match_exits_1(self, registry: Path, tmp_path: Path) -> None:
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha})
+        result = runner.invoke(app, ["search", "zzz_no_match_xyz"])
+        assert result.exit_code == 1
+        assert "No matches" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_case_insensitive_by_default(self, registry: Path, tmp_path: Path) -> None:
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("a.py", "feat: implement Radar detection", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha})
+        result = runner.invoke(app, ["search", "RADAR"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+
+    def test_search_limited_to_one_project(self, registry: Path, tmp_path: Path) -> None:
+        alpha, beta = tmp_path / "alpha", tmp_path / "beta"
+        make_repo(alpha, [("a.py", "feat: radar work", NOW - timedelta(hours=1))])
+        make_repo(beta, [("b.py", "feat: radar work", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": alpha, "beta": beta})
+        result = runner.invoke(app, ["search", "radar", "--project", "alpha"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+        assert "beta" not in result.output
+
+    def test_search_unknown_project_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["search", "anything", "--project", "ghost"])
+        assert result.exit_code == 1
+        assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_no_registry_fails(self, registry: Path) -> None:
+        result = runner.invoke(app, ["search", "anything"])
         assert result.exit_code == 1
         assert "Traceback" not in result.output
 

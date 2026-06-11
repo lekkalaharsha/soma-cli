@@ -60,6 +60,15 @@ def clear_notes(project: str, path: Path = NOTES_FILE) -> int:
     return count
 
 
+def rename_notes(old: str, new: str, path: Path = NOTES_FILE) -> None:
+    """Move all notes from old project key to new key."""
+    data = _load_raw(path)
+    if old not in data:
+        return
+    data[new] = data.pop(old)
+    _save_raw(data, path)
+
+
 def _load_raw(path: Path) -> dict:
     if not path.exists():
         return {}
