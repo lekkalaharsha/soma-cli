@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from soma.context import UnsafeTargetError, generate_context, write_context_file
+from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
 from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
@@ -216,6 +216,89 @@ def context(
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("Stopped.")
+
+
+_REQUIRED_SECTIONS = (
+    "## Recent work",
+    "## Files in motion",
+    "## Possible blockers",
+    "## Suggested focus",
+)
+_TOKEN_FLOOR = 350
+
+
+@app.command()
+def validate(
+    project: Optional[str] = typer.Argument(
+        None, help="Validate one project (default: all registered projects)."
+    ),
+) -> None:
+    """Check context quality for all projects: token budget, format, no secrets."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if project is not None:
+        entry = registry.get(project)
+        if entry is None:
+            console.print(
+                f"[red]Unknown project:[/red] {escape(project)}. "
+                "Run [bold]soma status[/bold] to list projects."
+            )
+            raise typer.Exit(code=1)
+        targets = {project: entry}
+    else:
+        targets = registry
+
+    table = Table(title="SOMA — Context validation")
+    table.add_column("Project", style="bold")
+    table.add_column("Tokens", justify="right")
+    table.add_column("Format")
+    table.add_column("Secrets")
+    table.add_column("Status")
+
+    any_fail = False
+    for name, entry in targets.items():
+        root = Path(entry["root"])
+        try:
+            text = generate_context(name, root)
+        except Exception as exc:
+            table.add_row(escape(name), "—", "—", "—", f"[red]ERROR: {escape(str(exc))}[/red]")
+            any_fail = True
+            continue
+
+        tokens = estimate_tokens(text)
+        missing = [s for s in _REQUIRED_SECTIONS if s not in text]
+        fmt_ok = not missing
+        secrets_clean = not any(
+            pat in text
+            for pat in ("api_key=", "secret=", "Bearer ", "sk-", "ghp_")
+        )
+
+        token_str = str(tokens)
+        if tokens > TOKEN_CEILING:
+            token_str = f"[red]{tokens}[/red]"
+            any_fail = True
+        elif tokens < _TOKEN_FLOOR:
+            token_str = f"[yellow]{tokens}[/yellow]"
+
+        fmt_str = "[green]OK[/green]" if fmt_ok else f"[red]missing: {', '.join(missing)}[/red]"
+        sec_str = "[green]clean[/green]" if secrets_clean else "[red]LEAK[/red]"
+
+        if not fmt_ok or not secrets_clean or tokens > TOKEN_CEILING:
+            status_str = "[red]FAIL[/red]"
+            any_fail = True
+        elif tokens < _TOKEN_FLOOR:
+            status_str = "[yellow]WARN (low tokens)[/yellow]"
+        else:
+            status_str = "[green]OK[/green]"
+
+        table.add_row(escape(name), token_str, fmt_str, sec_str, status_str)
+
+    console.print(table)
+    if any_fail:
+        raise typer.Exit(code=1)
 
 
 @app.command()

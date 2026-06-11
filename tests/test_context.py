@@ -272,6 +272,35 @@ class TestWatchWrite:
         assert "Context Summary" in target.read_text(encoding="utf-8")
 
 
+class TestValidateCommand:
+    def test_validate_all_ok(self, registry: Path, tmp_path: Path) -> None:
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        result = runner.invoke(app, ["validate"])
+        assert result.exit_code == 0, result.output
+        assert "merops-x" in result.output
+        assert "OK" in result.output
+
+    def test_validate_single_project(self, registry: Path, tmp_path: Path) -> None:
+        root = rich_repo(tmp_path)
+        write_registry(registry, {"merops-x": root})
+        result = runner.invoke(app, ["validate", "merops-x"])
+        assert result.exit_code == 0, result.output
+        assert "merops-x" in result.output
+
+    def test_validate_unknown_project_error(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["validate", "ghost"])
+        assert result.exit_code == 1
+        assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+    def test_validate_no_registry_error(self, registry: Path) -> None:
+        result = runner.invoke(app, ["validate"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.output
+
+
 class TestContextSecurity:
     def test_credentials_in_commit_messages_redacted(self, tmp_path: Path) -> None:
         root = tmp_path / "leaky"
