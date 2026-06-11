@@ -15,7 +15,7 @@ from pathlib import Path
 
 import tomli_w
 
-from soma.detect import Project, find_git_roots, register_projects
+from soma.detect import Project, find_git_roots, forget_project, register_projects
 
 
 def _names(roots: list[Path]) -> set[str]:
@@ -120,6 +120,28 @@ class TestRegisterProjects:
         assert {p.name for p in new} == {"app", "app-2"}
         roots = {p.root for p in new}
         assert len(roots) == 2  # both distinct roots registered
+
+    def test_forget_removes_project(self, fixture_home: Path, tmp_path: Path) -> None:
+        registry_path = tmp_path / "soma_home" / "projects.toml"
+        register_projects(find_git_roots(fixture_home), path=registry_path)
+        assert forget_project("repo_a", registry_path) is True
+        with registry_path.open("rb") as f:
+            data = tomllib.load(f)
+        assert "repo_a" not in data["projects"]
+        assert "repo_b" in data["projects"]  # others untouched
+
+    def test_forget_unknown_returns_false(self, tmp_path: Path) -> None:
+        registry_path = tmp_path / "empty.toml"
+        assert forget_project("nonexistent", registry_path) is False
+
+    def test_forget_idempotent_other_entries(self, fixture_home: Path, tmp_path: Path) -> None:
+        registry_path = tmp_path / "soma_home" / "projects.toml"
+        register_projects(find_git_roots(fixture_home), path=registry_path)
+        forget_project("repo_a", registry_path)
+        forget_project("repo_b", registry_path)
+        with registry_path.open("rb") as f:
+            data = tomllib.load(f)
+        assert {"repo_c", "repo_deep4"} <= set(data["projects"])
 
     def test_project_model_roundtrip(self) -> None:
         p = Project(

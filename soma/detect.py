@@ -106,6 +106,18 @@ def register_projects(
     return new, known
 
 
+def forget_project(name: str, path: Path = PROJECTS_FILE) -> bool:
+    """Remove a named project from the registry. Returns True if found and removed."""
+    registry = load_registry(path)
+    if name not in registry:
+        return False
+    del registry[name]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as f:
+        tomli_w.dump({"projects": registry}, f)
+    return True
+
+
 def _unique_name(base_name: str, registry: dict[str, dict]) -> str:
     if base_name not in registry:
         return base_name

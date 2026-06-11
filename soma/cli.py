@@ -11,7 +11,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from soma.context import UnsafeTargetError, generate_context, write_context_file
-from soma.detect import PROJECTS_FILE, find_git_roots, load_registry, register_projects
+from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -216,6 +216,26 @@ def context(
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("Stopped.")
+
+
+@app.command()
+def forget(
+    project: str = typer.Argument(..., help="Project name to remove from registry."),
+) -> None:
+    """Remove a project from the SOMA registry (does not delete files)."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(
+            f"[red]Unknown project:[/red] {escape(project)}. "
+            "Run [bold]soma status[/bold] to list projects."
+        )
+        raise typer.Exit(code=1)
+    forget_project(project, PROJECTS_FILE)
+    console.print(f"[green]Removed[/green] [bold]{escape(project)}[/bold] from registry.")
+    console.print("[dim]Files on disk untouched. Re-run soma init to re-register.[/dim]")
 
 
 def _print_deep_view(s: ProjectStatus) -> None:
