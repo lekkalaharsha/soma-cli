@@ -22,11 +22,11 @@ export function activate(context: vscode.ExtensionContext): void {
   // Command: SOMA: Copy Context
   context.subscriptions.push(
     vscode.commands.registerCommand("soma.copyContext", async () => {
-      if (!isSomaAvailable()) {
+      if (!(await isSomaAvailable())) {
         vscode.window.showErrorMessage("soma not found. Install with: pip install soma-cli");
         return;
       }
-      const projects = listProjectNames();
+      const projects = await listProjectNames();
       if (projects.length === 0) {
         vscode.window.showWarningMessage("No soma projects registered. Run soma init first.");
         return;
@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!picked) {
         return;
       }
-      const text = getContextText(picked);
+      const text = await getContextText(picked);
       await vscode.env.clipboard.writeText(text);
       vscode.window.showInformationMessage(`SOMA: context for "${picked}" copied to clipboard.`);
     })
