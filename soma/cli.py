@@ -15,6 +15,7 @@ from rich.table import Table
 
 from datetime import datetime, timedelta, timezone
 
+from soma.config import DEFAULTS, VALID_KEYS, load_config, reset_config, set_config
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
 from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects, rename_project
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
@@ -321,6 +322,9 @@ def validate(
     table.add_column("Secrets")
     table.add_column("Status")
 
+    cfg = load_config()
+    effective_ceiling = cfg["token_ceiling"]
+
     any_fail = False
     for name, entry in targets.items():
         root = Path(entry["root"])
@@ -340,7 +344,7 @@ def validate(
         )
 
         token_str = str(tokens)
-        if tokens > TOKEN_CEILING:
+        if tokens > effective_ceiling:
             token_str = f"[red]{tokens}[/red]"
             any_fail = True
         elif tokens < _TOKEN_FLOOR:
@@ -349,7 +353,7 @@ def validate(
         fmt_str = "[green]OK[/green]" if fmt_ok else f"[red]missing: {', '.join(missing)}[/red]"
         sec_str = "[green]clean[/green]" if secrets_clean else "[red]LEAK[/red]"
 
-        if not fmt_ok or not secrets_clean or tokens > TOKEN_CEILING:
+        if not fmt_ok or not secrets_clean or tokens > effective_ceiling:
             status_str = "[red]FAIL[/red]"
             any_fail = True
         elif tokens < _TOKEN_FLOOR:
@@ -557,6 +561,103 @@ def forget(
     forget_project(project, PROJECTS_FILE)
     console.print(f"[green]Removed[/green] [bold]{escape(project)}[/bold] from registry.")
     console.print("[dim]Files on disk untouched. Re-run soma init to re-register.[/dim]")
+
+
+config_app = typer.Typer(help="Manage SOMA configuration.", invoke_without_command=True)
+app.add_typer(config_app, name="config")
+
+
+@config_app.callback()
+def config_default(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        _config_list()
+
+
+@config_app.command("list")
+def config_list() -> None:
+    """Show all config keys with current and default values."""
+    _config_list()
+
+
+def _config_list() -> None:
+    cfg = load_config()
+    table = Table(title="SOMA — Configuration")
+    table.add_column("Key", style="bold")
+    table.add_column("Current", justify="right")
+    table.add_column("Default", justify="right", style="dim")
+    for key in VALID_KEYS:
+        current = cfg[key]
+        default = DEFAULTS[key]
+        val_str = str(current)
+        if current != default:
+            val_str = f"[cyan]{current}[/cyan]"
+        table.add_row(key, val_str, str(default))
+    console.print(table)
+
+
+@config_app.command("get")
+def config_get(
+    key: str = typer.Argument(..., help="Config key to read."),
+) -> None:
+    """Print the current value of a config key."""
+    if key not in VALID_KEYS:
+        console.print(
+            f"[red]Unknown key:[/red] {escape(key)}. "
+            f"Valid: {', '.join(VALID_KEYS)}"
+        )
+        raise typer.Exit(code=1)
+    cfg = load_config()
+    typer.echo(cfg[key])
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Config key to set."),
+    value: str = typer.Argument(..., help="New value (integer)."),
+) -> None:
+    """Set a config key to a new value."""
+    if key not in VALID_KEYS:
+        console.print(
+            f"[red]Unknown key:[/red] {escape(key)}. "
+            f"Valid: {', '.join(VALID_KEYS)}"
+        )
+        raise typer.Exit(code=1)
+    try:
+        int_val = int(value)
+    except ValueError:
+        console.print(f"[red]Value must be an integer, got:[/red] {escape(value)}")
+        raise typer.Exit(code=1)
+    try:
+        set_config(key, int_val)
+    except ValueError as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(code=1)
+    console.print(
+        f"[green]Set[/green] [bold]{escape(key)}[/bold] = {int_val} "
+        f"[dim](was {DEFAULTS[key]})[/dim]"
+    )
+
+
+@config_app.command("reset")
+def config_reset(
+    key: str = typer.Argument(..., help="Config key to reset to default."),
+) -> None:
+    """Reset a config key to its default value."""
+    if key not in VALID_KEYS:
+        console.print(
+            f"[red]Unknown key:[/red] {escape(key)}. "
+            f"Valid: {', '.join(VALID_KEYS)}"
+        )
+        raise typer.Exit(code=1)
+    removed = reset_config(key)
+    if removed:
+        console.print(
+            f"[green]Reset[/green] [bold]{escape(key)}[/bold] → default ({DEFAULTS[key]})"
+        )
+    else:
+        console.print(
+            f"[dim]{escape(key)}[/dim] already at default ({DEFAULTS[key]})"
+        )
 
 
 def _print_deep_view(s: ProjectStatus) -> None:

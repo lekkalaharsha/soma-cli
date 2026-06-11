@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from soma.config import load_config
 from soma.filters import is_watched, should_ignore
 from soma.notes import MAX_NOTES, load_notes
 from soma.sanitize import redact
@@ -70,28 +71,34 @@ def generate_context(
     name: str,
     root: Path,
     now: datetime | None = None,
-    max_tokens: int = TOKEN_CEILING,
+    max_tokens: int | None = None,
 ) -> str:
     """Build the compact context summary for one project. Never raises on
     missing data — empty repos and non-git dirs produce valid output."""
+    cfg = load_config()
+    effective_ceiling = max_tokens if max_tokens is not None else cfg["token_ceiling"]
+    cfg_max_files = cfg["max_files"]
+    cfg_max_commits = cfg["max_commits"]
+    cfg_dormant_days = cfg["dormant_days"]
+
     now = now or datetime.now(timezone.utc)
     status = get_status(name, root)
     description = _project_description(root)
     notes = load_notes(name)
-    commit_stats = _fetch_commit_stats(root, MAX_COMMITS)
+    commit_stats = _fetch_commit_stats(root, cfg_max_commits)
     files = _files_in_motion(root, status.files_changed_7d)
     if not files:
-        files = _recent_files_by_mtime(root, now)
+        files = _recent_files_by_mtime(root, now, dormant_days=cfg_dormant_days)
     blockers = _detect_blockers(status, root, files, now)
-    focus = _suggested_focus(status, files, now)
+    focus = _suggested_focus(status, files, now, dormant_days=cfg_dormant_days)
     confidence = _confidence(status)
 
-    n_files, n_commits = MAX_FILES, MAX_COMMITS
+    n_files, n_commits = cfg_max_files, cfg_max_commits
     text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
-    while estimate_tokens(text) > max_tokens and n_files > 0:
+    while estimate_tokens(text) > effective_ceiling and n_files > 0:
         n_files -= 1
         text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
-    while estimate_tokens(text) > max_tokens and n_commits > 1:
+    while estimate_tokens(text) > effective_ceiling and n_commits > 1:
         n_commits -= 1
         text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     return redact(text)
@@ -215,15 +222,17 @@ def _files_in_motion(root: Path, candidates: list[str]) -> list[tuple[str, datet
 
 
 def _recent_files_by_mtime(
-    root: Path, now: datetime | None = None
+    root: Path,
+    now: datetime | None = None,
+    dormant_days: int = DORMANT_DAYS,
 ) -> list[tuple[str, datetime]]:
     """Fallback for non-git/quiet repos: newest watched files by mtime.
 
-    Files older than DORMANT_DAYS are omitted — showing 86d-old files as
+    Files older than dormant_days are omitted — showing 86d-old files as
     "in motion" is misleading for dormant repos.
     """
     now = now or datetime.now(timezone.utc)
-    cutoff = (now - timedelta(days=DORMANT_DAYS)).timestamp()
+    cutoff = (now - timedelta(days=dormant_days)).timestamp()
     deadline = time.monotonic() + FILE_WALK_BUDGET_S
     found: list[tuple[str, float]] = []
     _walk_files(str(root), root, deadline, found)
@@ -430,9 +439,10 @@ def _suggested_focus(
     status: ProjectStatus,
     files: list[tuple[str, datetime]],
     now: datetime,
+    dormant_days: int = DORMANT_DAYS,
 ) -> str:
     last_commit = status.recent_commits[0].when if status.recent_commits else None
-    dormant = last_commit is not None and (now - last_commit) > timedelta(days=DORMANT_DAYS)
+    dormant = last_commit is not None and (now - last_commit) > timedelta(days=dormant_days)
     if status.recent_commits:
         message = status.recent_commits[0].message
         if dormant:
