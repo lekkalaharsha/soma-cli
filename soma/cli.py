@@ -34,7 +34,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
-_VERSION = "0.2.0"
+_VERSION = "0.3.0"
 
 
 @app.callback()
