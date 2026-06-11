@@ -1,6 +1,6 @@
 [project]
 name = "soma-cli"
-version = "0.1.1"
+version = "0.2.0"
 description = "Your repos already remember everything. Now they can tell your AI."
 readme = "README.md"
 license = { text = "MIT" }
@@ -22,8 +22,9 @@ dependencies = ["gitpython>=3.1", "typer>=0.12", "rich>=13.0", "pydantic>=2.0", 
 soma = "soma.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/lekkalaharsha/soma-cli"
-Repository = "https://github.com/lekkalaharsha/soma-cli"
+Homepage = "https://github.com/aranrobotics-prog/soma-cli"
+Repository = "https://github.com/aranrobotics-prog/soma-cli"
+"Bug Tracker" = "https://github.com/aranrobotics-prog/soma-cli/issues"
 
 [build-system]
 requires = ["hatchling"]
