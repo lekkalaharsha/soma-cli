@@ -149,6 +149,9 @@ def context(
 ) -> None:
     """Generate a compact LLM-ready context summary for a project."""
     registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
     entry = registry.get(project)
     if entry is None:
         console.print(

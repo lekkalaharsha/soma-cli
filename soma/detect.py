@@ -62,8 +62,11 @@ def load_registry(path: Path = PROJECTS_FILE) -> dict[str, dict]:
     """Load the [projects] table; empty dict if the file doesn't exist yet."""
     if not path.exists():
         return {}
-    with path.open("rb") as f:
-        data = tomllib.load(f)
+    try:
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return {}
     return data.get("projects", {})
 
 
