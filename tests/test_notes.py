@@ -119,3 +119,36 @@ class TestNotesCLI:
         assert result.exit_code == 1
         assert "ghost" in result.output
         assert "Traceback" not in result.output
+
+
+class TestBriefingCLI:
+    def test_briefing_shows_active_projects(self, registry: Path, tmp_path: Path) -> None:
+        root = make_repo(
+            tmp_path / "alpha",
+            [("a.py", "feat: init", NOW - timedelta(hours=2))],
+        )
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["briefing"])
+        assert result.exit_code == 0, result.output
+        assert "alpha" in result.output
+        assert "Traceback" not in result.output
+
+    def test_briefing_no_registry(self, registry: Path) -> None:
+        result = runner.invoke(app, ["briefing"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.output
+
+    def test_briefing_shows_note_tag(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        import soma.notes as nm
+        notes_file = tmp_path / "notes.toml"
+        monkeypatch.setattr(nm, "NOTES_FILE", notes_file)
+        monkeypatch.setattr(cli_mod, "load_notes", lambda p: nm.load_notes(p, notes_file))
+
+        make_repo(tmp_path / "alpha", [("a.py", "feat: init", NOW - timedelta(hours=2))])
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        nm.add_note("alpha", "blocked on deploy", notes_file)
+
+        result = runner.invoke(app, ["briefing"])
+        assert result.exit_code == 0, result.output
+        assert "blocked on deploy" in result.output

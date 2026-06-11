@@ -12,6 +12,8 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from datetime import datetime, timedelta, timezone
+
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
 from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects
 from soma.notes import add_note, clear_notes, load_notes
@@ -367,6 +369,71 @@ def note(
         f"[green]Note added[/green] to [bold]{escape(project)}[/bold]: {escape(n.text)}"
     )
     console.print("[dim]Will appear in soma context output.[/dim]")
+
+
+@app.command()
+def briefing() -> None:
+    """Morning summary: active, quiet, and dormant projects with pending notes."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    now = datetime.now(timezone.utc)
+    statuses = collect_statuses(registry)
+
+    active, quiet, dormant = [], [], []
+    for s in statuses:
+        age = (now - s.last_active).days if s.last_active else 9999
+        if s.commits_7d > 0:
+            active.append(s)
+        elif age <= 30:
+            quiet.append(s)
+        else:
+            dormant.append(s)
+
+    date_str = now.strftime("%Y-%m-%d %H:%M")
+    console.print(f"\n[bold]SOMA Briefing[/bold] — {date_str}\n")
+
+    def _row(s: ProjectStatus) -> None:
+        notes = load_notes(s.name)
+        note_tag = f" [yellow][{len(notes)} note(s)][/yellow]" if notes else ""
+        age_str = humanize_delta(s.last_active, now)
+        commits_str = f"{s.commits_7d}c" if s.commits_7d else "no commits"
+        console.print(
+            f"  [bold cyan]{escape(s.name[:28]):<28}[/bold cyan] "
+            f"[dim]{escape(s.branch):<16}[/dim] "
+            f"{age_str:<12} {commits_str}{note_tag}"
+        )
+        if notes:
+            console.print(f"    [yellow]↳ {escape(notes[0].text)}[/yellow]")
+
+    if active:
+        console.print(f"[green]Active[/green] ({len(active)})")
+        for s in active:
+            _row(s)
+        console.print()
+
+    if quiet:
+        console.print(f"[yellow]Quiet[/yellow] — no commits this week ({len(quiet)})")
+        for s in quiet[:5]:
+            _row(s)
+        if len(quiet) > 5:
+            console.print(f"  [dim]...and {len(quiet) - 5} more[/dim]")
+        console.print()
+
+    if dormant:
+        console.print(f"[dim]Dormant >30d ({len(dormant)})[/dim]")
+        for s in dormant[:3]:
+            _row(s)
+        if len(dormant) > 3:
+            console.print(f"  [dim]...and {len(dormant) - 3} more[/dim]")
+        console.print()
+
+    total_notes = sum(1 for s in statuses if load_notes(s.name))
+    if total_notes:
+        console.print(f"[yellow]{total_notes} project(s) have pending notes.[/yellow] "
+                      "Run [dim]soma note <project> --list[/dim] to review.")
 
 
 @app.command()
