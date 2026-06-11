@@ -67,6 +67,48 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def generate_context_dict(
+    name: str,
+    root: Path,
+    now: datetime | None = None,
+    since: datetime | None = None,
+) -> dict:
+    """Return structured context data as a plain dict (for --format json)."""
+    cfg = load_config()
+    now = now or datetime.now(timezone.utc)
+    status = get_status(name, root, since=since)
+    description = _project_description(root)
+    notes = load_notes(name)
+    commit_stats = _fetch_commit_stats(root, cfg["max_commits"])
+    files = _files_in_motion(root, status.files_changed_7d)
+    if not files:
+        files = _recent_files_by_mtime(root, now, dormant_days=cfg["dormant_days"])
+    blockers = _detect_blockers(status, root, files, now)
+    focus = _suggested_focus(status, files, now, dormant_days=cfg["dormant_days"])
+    confidence = _confidence(status)
+    return {
+        "project": name,
+        "generated": now.isoformat(),
+        "branch": status.branch,
+        "last_active": status.last_active.isoformat() if status.last_active else None,
+        "commits_7d": status.commits_7d,
+        "files_changed": len(status.files_changed_7d),
+        "confidence": confidence,
+        "description": description,
+        "recent_commits": [
+            {"message": c.message, "when": c.when.isoformat()}
+            for c in status.recent_commits[: cfg["max_commits"]]
+        ],
+        "files_in_motion": [
+            {"path": rel, "modified": when.isoformat()}
+            for rel, when in files[: cfg["max_files"]]
+        ],
+        "blockers": blockers,
+        "focus": focus,
+        "notes": [{"text": n.text, "when": n.when} for n in notes[:MAX_NOTES]],
+    }
+
+
 def generate_context(
     name: str,
     root: Path,

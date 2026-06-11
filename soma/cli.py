@@ -15,8 +15,8 @@ from rich.table import Table
 
 from datetime import datetime, timedelta, timezone
 
-from soma.config import DEFAULTS, VALID_KEYS, load_config, reset_config, set_config
-from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
+from soma.config import DEFAULTS, VALID_KEYS, _BOUNDS, load_config, reset_config, set_config
+from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, generate_context_dict, write_context_file
 from soma.detect import (
     PROJECTS_FILE, add_tag, find_git_roots, forget_project, get_tags,
     is_archived, load_registry, projects_by_tag, register_projects,
@@ -258,8 +258,15 @@ def context(
     copy: bool = typer.Option(False, "--copy", help="Copy output to clipboard instead of printing."),
     since: Optional[str] = typer.Option(None, "--since", help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday)."),
     group: Optional[str] = typer.Option(None, "--group", "-g", help="Generate context for all projects with this tag."),
+    fmt: str = typer.Option("text", "--format", "-f", help="Output format: text or json."),
 ) -> None:
     """Generate a compact LLM-ready context summary for a project or tag group."""
+    import json as _json
+
+    if fmt not in ("text", "json"):
+        console.print(f"[red]Unknown format:[/red] {escape(fmt)}. Use 'text' or 'json'.")
+        raise typer.Exit(code=1)
+
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
@@ -279,6 +286,10 @@ def context(
         if not targets:
             console.print(f"[red]No projects tagged:[/red] {escape(group)}.")
             raise typer.Exit(code=1)
+        if fmt == "json":
+            results = [generate_context_dict(name, Path(entry["root"]), since=since_dt) for name, entry in targets.items()]
+            typer.echo(_json.dumps(results, indent=2))
+            return
         parts: list[str] = []
         for name, entry in targets.items():
             parts.append(generate_context(name, Path(entry["root"]), since=since_dt))
@@ -303,6 +314,10 @@ def context(
 
     root = Path(entry["root"])
     if not watch:
+        if fmt == "json":
+            data = generate_context_dict(project, root, since=since_dt)
+            typer.echo(_json.dumps(data, indent=2))
+            return
         text = generate_context(project, root, since=since_dt)
         if copy:
             if _copy_to_clipboard(text):
@@ -909,6 +924,196 @@ def unarchive(
         raise typer.Exit(code=1)
     set_archived(project, False, PROJECTS_FILE)
     console.print(f"[green]Restored[/green] [bold]{escape(project)}[/bold] to active tier.")
+
+
+@app.command()
+def diff(
+    project: str = typer.Argument(..., help="Project to diff against its saved baseline."),
+) -> None:
+    """Show what changed in a project's context since the last saved baseline."""
+    import difflib as _dl
+
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    safe = re.sub(r"[^\w\-]", "_", project)
+    baseline_path = _BASELINES_DIR / f"{safe}.md"
+    if not baseline_path.exists():
+        console.print(
+            f"[yellow]No baseline for[/yellow] [bold]{escape(project)}[/bold]. "
+            f"Run [dim]soma validate {escape(project)} --save-baseline[/dim] first."
+        )
+        raise typer.Exit(code=1)
+
+    root = Path(entry["root"])
+    try:
+        current = generate_context(project, root)
+    except Exception as exc:
+        console.print(f"[red]Error generating context:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1)
+
+    baseline = baseline_path.read_text(encoding="utf-8")
+    lines = list(_dl.unified_diff(
+        baseline.splitlines(), current.splitlines(),
+        fromfile="baseline", tofile="current", lineterm="",
+    ))
+    if not lines:
+        console.print(f"[green]{escape(project)}:[/green] no change since baseline.")
+        return
+
+    console.print(f"\n[bold yellow]{escape(project)}[/bold yellow] — {len(lines)} diff line(s)\n")
+    for line in lines[2:]:  # skip --- / +++ headers
+        if line.startswith("+"):
+            console.print(f"  [green]{escape(line)}[/green]")
+        elif line.startswith("-"):
+            console.print(f"  [red]{escape(line)}[/red]")
+        else:
+            console.print(f"  [dim]{escape(line)}[/dim]")
+    raise typer.Exit(code=1)
+
+
+@app.command()
+def doctor() -> None:
+    """Check registry integrity, stale roots, config bounds, and git availability."""
+    import shutil
+
+    issues: list[str] = []
+    ok: list[str] = []
+
+    # git binary available
+    if shutil.which("git"):
+        ok.append("git binary found")
+    else:
+        issues.append("git binary not found — soma needs git on PATH")
+
+    # config bounds
+    cfg = load_config()
+    for key, (lo, hi) in _BOUNDS.items():
+        val = cfg.get(key, DEFAULTS[key])
+        if lo <= val <= hi:
+            ok.append(f"config {key}={val} (in bounds {lo}–{hi})")
+        else:
+            issues.append(f"config {key}={val} out of bounds [{lo}, {hi}]")
+
+    # registry integrity
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        ok.append("registry empty (run soma init to populate)")
+    else:
+        stale = []
+        non_git = []
+        for name, entry in registry.items():
+            root = Path(entry.get("root", ""))
+            if not root.exists():
+                stale.append(name)
+            elif not (root / ".git").exists():
+                non_git.append(name)
+        ok.append(f"{len(registry)} projects registered")
+        if stale:
+            issues.append(f"stale roots (directory missing): {', '.join(stale)}")
+        else:
+            ok.append("all registered roots exist")
+        if non_git:
+            issues.append(f"non-git roots: {', '.join(non_git)}")
+        else:
+            ok.append("all roots are git repos")
+
+    for msg in ok:
+        console.print(f"  [green]✓[/green] {msg}")
+    for msg in issues:
+        console.print(f"  [red]✗[/red] {msg}")
+
+    if issues:
+        console.print(f"\n[red]{len(issues)} issue(s) found.[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"\n[green]All checks passed ({len(ok)} checks).[/green]")
+
+
+_HOOK_CONTENT = """\
+#!/bin/sh
+# soma post-commit hook — auto-regenerates CLAUDE.md
+soma context {project}
+"""
+
+hook_app = typer.Typer(help="Manage soma git hooks.")
+app.add_typer(hook_app, name="hook")
+
+
+@hook_app.command("install")
+def hook_install(
+    project: str = typer.Argument(..., help="Project to install hook for."),
+) -> None:
+    """Write a post-commit hook that regenerates context after every commit."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    hook_dir = Path(entry["root"]) / ".git" / "hooks"
+    if not hook_dir.exists():
+        console.print(f"[red]No .git/hooks directory in {escape(entry['root'])}[/red]")
+        raise typer.Exit(code=1)
+
+    hook_path = hook_dir / "post-commit"
+    if hook_path.exists():
+        existing = hook_path.read_text(encoding="utf-8")
+        if "soma context" not in existing:
+            console.print(
+                f"[yellow]Existing post-commit hook not from soma.[/yellow] "
+                f"Edit {escape(str(hook_path))} manually to add: soma context {escape(project)}"
+            )
+            raise typer.Exit(code=1)
+
+    hook_path.write_text(_HOOK_CONTENT.format(project=project), encoding="utf-8", newline="\n")
+    try:
+        hook_path.chmod(0o755)
+    except OSError:
+        pass  # Windows — chmod no-op, git will still run it
+    console.print(
+        f"[green]Hook installed[/green] → {escape(str(hook_path))}\n"
+        f"  After every [bold]git commit[/bold] in [bold]{escape(project)}[/bold], "
+        f"CLAUDE.md regenerates automatically."
+    )
+
+
+@hook_app.command("remove")
+def hook_remove(
+    project: str = typer.Argument(..., help="Project to remove hook from."),
+) -> None:
+    """Remove the soma post-commit hook from a project."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    hook_path = Path(entry["root"]) / ".git" / "hooks" / "post-commit"
+    if not hook_path.exists():
+        console.print(f"[dim]No post-commit hook at {escape(str(hook_path))}.[/dim]")
+        return
+
+    existing = hook_path.read_text(encoding="utf-8")
+    if "soma context" not in existing:
+        console.print(
+            f"[yellow]Hook at {escape(str(hook_path))} was not installed by soma — leaving it.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+
+    hook_path.unlink()
+    console.print(f"[green]Removed[/green] soma hook from [bold]{escape(project)}[/bold].")
 
 
 def _print_deep_view(s: ProjectStatus) -> None:
