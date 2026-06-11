@@ -183,6 +183,20 @@ class TestContextHeuristics:
                 "- Possible blocker detected:"
             ), line
 
+    def test_top_dir_skips_tests_and_docs(self, tmp_path: Path) -> None:
+        root = tmp_path / "myproj"
+        commits = [
+            ("tests/test_core.py", "test: coverage", NOW - timedelta(hours=5)),
+            ("tests/test_util.py", "test: more coverage", NOW - timedelta(hours=4)),
+            ("docs/api.md", "docs: api reference", NOW - timedelta(hours=3)),
+            ("src/core.py", "feat: main logic", NOW - timedelta(hours=2)),
+        ]
+        make_repo(root, commits)
+        out = generate_context("myproj", root)
+        focus = out.split("## Suggested focus")[1].strip().splitlines()[0]
+        assert "src/" in focus, f"expected src/ in focus, got: {focus}"
+        assert "tests/" not in focus
+
 
 class TestContextFallback:
     def test_no_events_file_falls_back_to_git(
