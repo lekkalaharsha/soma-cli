@@ -252,7 +252,7 @@ def validate(
         targets = registry
 
     table = Table(title="SOMA — Context validation")
-    table.add_column("Project", style="bold")
+    table.add_column("Project", style="bold", max_width=28, no_wrap=True)
     table.add_column("Tokens", justify="right")
     table.add_column("Format")
     table.add_column("Secrets")
