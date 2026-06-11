@@ -24,8 +24,17 @@ from soma.detect import (
     remove_tag, rename_project, set_archived,
 )
 from soma.activity import build_activity_data, render_heatmap
+from soma.cli_helpers import (
+    _CLAUDE_DESKTOP_CONFIG,
+    _collect_mtimes,
+    _config_path,
+    _copy_to_clipboard,
+    _parse_since,
+    _status_to_dict,
+)
 from soma.filters import is_watched, should_ignore
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
+from soma.sanitize import redact
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -34,7 +43,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
-_VERSION = "0.3.0"
+_VERSION = "0.3.1"
 
 
 @app.callback()
@@ -218,51 +227,6 @@ def history(
                 f"  {event.when:%H:%M}  [cyan]{escape(event.project)}[/cyan]  "
                 f"{escape(event.message)}"
             )
-
-
-def _copy_to_clipboard(text: str) -> bool:
-    """Copy text to system clipboard. Returns True on success."""
-    import platform
-    plat = platform.system()
-    try:
-        if plat == "Windows":
-            subprocess.run(["clip"], input=text.encode("utf-16-le"), check=True, capture_output=True)
-        elif plat == "Darwin":
-            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, capture_output=True)
-        else:
-            # Linux: try xclip then xsel
-            try:
-                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode("utf-8"), check=True, capture_output=True)
-            except FileNotFoundError:
-                subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode("utf-8"), check=True, capture_output=True)
-        return True
-    except Exception:
-        return False
-
-
-def _parse_since(value: str) -> datetime:
-    """Parse '2026-06-01', '7d', '2w', '3h', 'yesterday' → UTC datetime.
-
-    Raises ValueError for unrecognised formats.
-    """
-    now = datetime.now(timezone.utc)
-    v = value.strip().lower()
-    if v == "yesterday":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-    m = re.fullmatch(r"(\d+)(d|w|h)", v)
-    if m:
-        n = int(m.group(1))
-        unit = m.group(2)
-        delta = {"d": timedelta(days=n), "w": timedelta(weeks=n), "h": timedelta(hours=n)}[unit]
-        return now - delta
-    try:
-        dt = datetime.strptime(value.strip(), "%Y-%m-%d")
-        return dt.replace(tzinfo=timezone.utc)
-    except ValueError:
-        pass
-    raise ValueError(
-        f"Cannot parse '{value}'. Use YYYY-MM-DD, Nd (days), Nw (weeks), Nh (hours), or 'yesterday'."
-    )
 
 
 @app.command()
@@ -554,12 +518,12 @@ def note(
             return
         console.print(f"[bold]Notes for {escape(project)}:[/bold]")
         for n in notes:
-            console.print(f"  [{n.when[:10]}] {escape(n.text)}")
+            console.print(f"  [{n.when[:10]}] {escape(redact(n.text))}")
         return
 
     n = add_note(project, text)
     console.print(
-        f"[green]Note added[/green] to [bold]{escape(project)}[/bold]: {escape(n.text)}"
+        f"[green]Note added[/green] to [bold]{escape(project)}[/bold]: {escape(redact(n.text))}"
     )
     console.print("[dim]Will appear in soma context output.[/dim]")
 
@@ -615,7 +579,7 @@ def briefing(
             f"{age_str:<12} {commits_str}{note_tag}"
         )
         if notes:
-            console.print(f"    [yellow]↳ {escape(notes[0].text)}[/yellow]")
+            console.print(f"    [yellow]↳ {escape(redact(notes[0].text))}[/yellow]")
 
     if active:
         console.print(f"[green]Active[/green] ({len(active)})")
@@ -1173,49 +1137,6 @@ def activity(
     typer.echo(render_heatmap(rows, date_range))
 
 
-def _collect_mtimes(root: Path, max_depth: int = 3) -> dict[str, float]:
-    """Return {abs_path: mtime} for watched files under root (for debounce)."""
-    result: dict[str, float] = {}
-    _mtime_walk(str(root), root, 0, max_depth, result)
-    return result
-
-
-def _mtime_walk(
-    directory: str, root: Path, depth: int, max_depth: int, result: dict[str, float]
-) -> None:
-    if depth > max_depth:
-        return
-    try:
-        with os.scandir(directory) as it:
-            for e in it:
-                if e.name.startswith("."):
-                    continue
-                try:
-                    if e.is_dir(follow_symlinks=False):
-                        if not should_ignore(e.name):
-                            _mtime_walk(e.path, root, depth + 1, max_depth, result)
-                    elif is_watched(e.name):
-                        result[e.path] = e.stat(follow_symlinks=False).st_mtime
-                except (OSError, ValueError):
-                    continue
-    except OSError:
-        pass
-
-
-def _status_to_dict(s: ProjectStatus) -> dict:
-    return {
-        "name": s.name,
-        "branch": s.branch,
-        "last_active": s.last_active.isoformat() if s.last_active else None,
-        "commits_7d": s.commits_7d,
-        "files_changed_7d": s.files_changed_7d,
-        "recent_commits": [
-            {"message": c.message, "when": c.when.isoformat()} for c in s.recent_commits
-        ],
-        "warning": s.warning,
-    }
-
-
 def _print_deep_view(s: ProjectStatus) -> None:
     console.print(f"[bold]Project:[/bold]      {escape(s.name)}")
     console.print(f"[bold]Branch:[/bold]       {escape(s.branch)}")
@@ -1251,7 +1172,7 @@ def tui() -> None:
     try:
         from soma.tui import run_tui  # noqa: PLC0415
     except ImportError:
-        console.print("[red]textual not installed.[/red] Run: pip install textual")
+        console.print("[red]textual not installed.[/red] Run: pip install 'soma-cli[tui]'")
         raise typer.Exit(code=1)
     run_tui(registry)
 
@@ -1259,26 +1180,13 @@ def tui() -> None:
 mcp_app = typer.Typer(help="Manage the SOMA MCP server for Claude Desktop / Cursor.")
 app.add_typer(mcp_app, name="mcp")
 
-_CLAUDE_DESKTOP_CONFIG = {
-    "Darwin": Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
-    "Windows": Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Claude" / "claude_desktop_config.json",
-    "Linux": Path.home() / ".config" / "Claude" / "claude_desktop_config.json",
-}
-
-
-def _config_path() -> Path:
-    import platform
-    system = platform.system()
-    return _CLAUDE_DESKTOP_CONFIG.get(system, _CLAUDE_DESKTOP_CONFIG["Linux"])
-
-
 @mcp_app.command("start")
 def mcp_start() -> None:
     """Start the SOMA MCP server (stdio transport — Claude Desktop spawns this)."""
     try:
         from soma.mcp import mcp as _mcp  # noqa: PLC0415
     except ImportError:
-        console.print("[red]fastmcp not installed.[/red] Run: pip install fastmcp")
+        console.print("[red]fastmcp not installed.[/red] Run: pip install 'soma-cli[mcp]'")
         raise typer.Exit(code=1)
     _mcp.run()
 

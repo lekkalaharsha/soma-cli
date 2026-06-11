@@ -1,16 +1,21 @@
 /**
  * WebviewViewProvider for the SOMA sidebar panel.
  *
- * Renders soma briefing output as styled HTML. Each project row has a
- * "Copy context" button that calls soma context <name> and writes to clipboard.
+ * Renders soma briefing output as styled HTML. All soma calls are async
+ * (non-blocking). File-save refreshes are debounced so a burst of saves
+ * triggers at most one rebuild.
  */
 import * as vscode from "vscode";
 import { getBriefingText, getContextText, listProjectNames, isSomaAvailable } from "./soma";
+
+const SAVE_DEBOUNCE_MS = 750;
 
 export class BriefingProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = "soma.briefing";
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
+  private _saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private _building = false;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -21,53 +26,68 @@ export class BriefingProvider implements vscode.WebviewViewProvider {
   ): void {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true };
-    webviewView.webview.html = this._buildHtml(webviewView.webview);
+    webviewView.webview.html = this._loadingHtml();
 
-    // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(
       (message: { command: string; project?: string }) => {
         if (message.command === "copyContext" && message.project) {
-          this._copyContext(message.project);
+          void this._copyContext(message.project);
         } else if (message.command === "refresh") {
-          this.refresh();
+          void this.refresh();
         }
       },
       undefined,
       this._disposables
     );
 
-    // Auto-refresh on file save
+    // Debounced auto-refresh on file save.
     const saveListener = vscode.workspace.onDidSaveTextDocument(() => {
-      this.refresh();
+      if (this._saveTimer) {
+        clearTimeout(this._saveTimer);
+      }
+      this._saveTimer = setTimeout(() => void this.refresh(), SAVE_DEBOUNCE_MS);
     });
     this._disposables.push(saveListener);
+
+    void this.refresh();
   }
 
-  refresh(): void {
-    if (!this._view) {
+  async refresh(): Promise<void> {
+    if (!this._view || this._building) {
       return;
     }
-    this._view.webview.html = this._buildHtml(this._view.webview);
+    this._building = true;
+    try {
+      this._view.webview.html = await this._buildHtml();
+    } finally {
+      this._building = false;
+    }
   }
 
   dispose(): void {
+    if (this._saveTimer) {
+      clearTimeout(this._saveTimer);
+    }
     this._disposables.forEach((d) => d.dispose());
     this._disposables = [];
   }
 
-  private _copyContext(project: string): void {
-    const text = getContextText(project);
-    vscode.env.clipboard.writeText(text).then(() => {
-      vscode.window.showInformationMessage(
-        `SOMA: context for "${project}" copied to clipboard.`
-      );
-    });
+  private async _copyContext(project: string): Promise<void> {
+    const text = await getContextText(project);
+    await vscode.env.clipboard.writeText(text);
+    vscode.window.showInformationMessage(
+      `SOMA: context for "${project}" copied to clipboard.`
+    );
   }
 
-  private _buildHtml(webview: vscode.Webview): string {
+  private _loadingHtml(): string {
+    return _page(_nonce(), "<p class='dim'>Loading SOMA briefing…</p>");
+  }
+
+  private async _buildHtml(): Promise<string> {
     const nonce = _nonce();
 
-    if (!isSomaAvailable()) {
+    if (!(await isSomaAvailable())) {
       return _page(nonce, `
         <div class="error">
           <p><strong>soma not found.</strong></p>
@@ -77,8 +97,10 @@ export class BriefingProvider implements vscode.WebviewViewProvider {
       `);
     }
 
-    const briefing = getBriefingText();
-    const projects = listProjectNames();
+    const [briefing, projects] = await Promise.all([
+      getBriefingText(),
+      listProjectNames(),
+    ]);
 
     const projectButtons = projects.length > 0
       ? projects

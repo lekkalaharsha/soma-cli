@@ -94,7 +94,10 @@ def generate_context_dict(
         "commits_7d": status.commits_7d,
         "files_changed": len(status.files_changed_7d),
         "confidence": confidence,
-        "description": description,
+        # Security gate: the JSON path must redact too. Commit messages are
+        # already clean (redacted in status.py); description / focus / notes
+        # are redacted here so no render path leaks credentials.
+        "description": redact(description),
         "recent_commits": [
             {"message": c.message, "when": c.when.isoformat()}
             for c in status.recent_commits[: cfg["max_commits"]]
@@ -103,9 +106,9 @@ def generate_context_dict(
             {"path": rel, "modified": when.isoformat()}
             for rel, when in files[: cfg["max_files"]]
         ],
-        "blockers": blockers,
-        "focus": focus,
-        "notes": [{"text": n.text, "when": n.when} for n in notes[:MAX_NOTES]],
+        "blockers": [redact(b) for b in blockers],
+        "focus": redact(focus),
+        "notes": [{"text": redact(n.text), "when": n.when} for n in notes[:MAX_NOTES]],
     }
 
 

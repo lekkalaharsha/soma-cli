@@ -18,6 +18,7 @@ from git.exc import GitCommandError
 from pydantic import BaseModel, Field
 
 from soma.filters import is_watched, should_ignore
+from soma.sanitize import redact
 
 REPO_TIMEOUT_S = 1.0
 MTIME_BUDGET_S = 0.6  # mtime walk self-truncates so huge repos degrade, not skip
@@ -186,7 +187,10 @@ def _recent_commits(repo: Repo) -> list[CommitInfo]:
             continue
         commits.append(
             CommitInfo(
-                message=message,
+                # Redact at ingestion: every consumer (status, context text/json,
+                # MCP, suggested focus) inherits a clean message — the security
+                # gate cannot be bypassed by a non-context render path.
+                message=redact(message),
                 when=datetime.fromtimestamp(int(ts), tz=timezone.utc),
             )
         )

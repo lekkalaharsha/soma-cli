@@ -4,6 +4,7 @@
   "description": "Live git project context in your sidebar. Click to copy into any AI chat.",
   "version": "0.1.0",
   "publisher": "aranrobotics",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/aranrobotics-prog/soma-cli"

@@ -21,6 +21,7 @@ from textual.widgets import DataTable, Footer, Header, Input, Label, Static
 from soma.context import generate_context
 from soma.detect import PROJECTS_FILE, load_registry
 from soma.notes import add_note, load_notes
+from soma.sanitize import redact
 from soma.status import ProjectStatus, collect_statuses, humanize_delta
 
 
@@ -182,7 +183,7 @@ class SomaTUI(App):
             return
         lines = ["[b]Notes[/b]"]
         for note in notes[:5]:
-            lines.append(f"• {note.text}")
+            lines.append(f"• {redact(note.text)}")
         panel.update("\n".join(lines))
 
     # ------------------------------------------------------------------ events
