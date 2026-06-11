@@ -44,8 +44,13 @@ class ProjectStatus(BaseModel):
     warning: str | None = None
 
 
-def get_status(name: str, root: Path) -> ProjectStatus:
-    """Gather status for one project. Never raises on git problems."""
+def get_status(name: str, root: Path, since: datetime | None = None) -> ProjectStatus:
+    """Gather status for one project. Never raises on git problems.
+
+    When `since` is provided, the activity window uses that date instead
+    of the hardcoded 7-day window (commits_7d / files_changed_7d still use
+    those field names for model compatibility).
+    """
     status = ProjectStatus(name=name, root=str(root))
     mtime, _ = _latest_watched_mtime(root)  # truncation is expected on large repos, not a warning
     git_time: datetime | None = None
@@ -53,7 +58,10 @@ def get_status(name: str, root: Path) -> ProjectStatus:
         repo = Repo(root)
         status.branch = _branch_name(repo)
         status.recent_commits = _recent_commits(repo)
-        status.commits_7d, status.files_changed_7d = _activity_7d(repo)
+        if since is not None:
+            status.commits_7d, status.files_changed_7d = _activity_since(repo, since)
+        else:
+            status.commits_7d, status.files_changed_7d = _activity_7d(repo)
         if status.recent_commits:
             git_time = status.recent_commits[0].when
     except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
@@ -194,6 +202,33 @@ def _activity_7d(repo: Repo) -> tuple[int, list[str]]:
             "--pretty=format:@%H",
         )
     except GitCommandError:  # unborn HEAD — zero commits
+        return 0, []
+    commits = 0
+    files: list[str] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("@") and len(line) == 41:
+            commits += 1
+            continue
+        if should_ignore(line) or not is_watched(line):
+            continue
+        if line not in files and len(files) < MAX_CHANGED_FILES:
+            files.append(line)
+    return commits, files
+
+
+def _activity_since(repo: Repo, since: datetime) -> tuple[int, list[str]]:
+    """(commit count, changed watched files) since a given datetime, one git call."""
+    since_iso = since.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        out = repo.git.log(
+            f"--after={since_iso}",
+            "--name-only",
+            "--pretty=format:@%H",
+        )
+    except GitCommandError:
         return 0, []
     commits = 0
     files: list[str] = []

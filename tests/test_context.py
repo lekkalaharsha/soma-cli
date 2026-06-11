@@ -75,7 +75,7 @@ class TestContextFormat:
         )
         assert re.search(r"^\*\*Branch:\*\* \S+ \| \*\*Last active:\*\* .+$", out, re.M)
         assert re.search(
-            r"^\*\*Activity \(7d\):\*\* \d+ commits, \d+ files? (changed|edited \(uncommitted\))$",
+            r"^\*\*Activity \((7d|since \d{4}-\d{2}-\d{2})\):\*\* \d+ commits, \d+ files? (changed|edited \(uncommitted\))$",
             out,
             re.M,
         )
@@ -172,7 +172,7 @@ class TestContextHeuristics:
         # the activity line must not contradict the files-in-motion list.
         make_repo(root, [("a.py", "feat: old work", NOW - timedelta(days=12))])
         out = generate_context("quiet", root)
-        assert "0 commits, 1 file edited (uncommitted)" in out
+        assert re.search(r"0 commits, 1 file edited \(uncommitted\)", out)
         assert "0 files changed" not in out
 
     def test_heuristics_never_assert_fact(self, tmp_path: Path) -> None:
@@ -385,6 +385,89 @@ class TestExportCommand:
         assert result.exit_code == 1
         assert "ghost" in result.output
         assert "Traceback" not in result.output
+
+
+class TestSinceFlag:
+    def test_since_filters_commits(self, tmp_path: Path) -> None:
+        root = tmp_path / "proj"
+        old = NOW - timedelta(days=20)
+        recent = NOW - timedelta(hours=2)
+        make_repo(root, [
+            ("old.py", "feat: old work", old),
+            ("new.py", "feat: recent work", recent),
+        ])
+        since_dt = NOW - timedelta(days=7)
+        out = generate_context("proj", root, since=since_dt)
+        assert "since" in out
+        assert re.search(r"Activity \(since \d{4}-\d{2}-\d{2}\)", out)
+        # Only the recent commit falls inside the window
+        activity_line = next(l for l in out.splitlines() if l.startswith("**Activity"))
+        assert "1 commits" in activity_line
+
+    def test_since_cli_flag(self, registry: Path, tmp_path: Path) -> None:
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: recent", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        result = runner.invoke(app, ["context", "alpha", "--since", "7d"])
+        assert result.exit_code == 0, result.output
+        assert "since" in result.output
+
+    def test_since_invalid_format_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["context", "alpha", "--since", "notadate"])
+        assert result.exit_code == 1
+        assert "Cannot parse" in result.output
+        assert "Traceback" not in result.output
+
+    def test_since_parse_formats(self) -> None:
+        from soma.cli import _parse_since
+        now = datetime.now(timezone.utc)
+        assert (_parse_since("7d") - (now - timedelta(days=7))).total_seconds() < 2
+        assert (_parse_since("2w") - (now - timedelta(weeks=2))).total_seconds() < 2
+        assert (_parse_since("3h") - (now - timedelta(hours=3))).total_seconds() < 2
+        assert _parse_since("2026-01-15").date().isoformat() == "2026-01-15"
+        assert (_parse_since("yesterday").date()) < now.date()
+
+
+class TestValidateCompare:
+    def test_save_baseline_creates_files(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        baselines_dir = tmp_path / "baselines"
+        monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines_dir)
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        result = runner.invoke(app, ["validate", "--save-baseline"])
+        assert result.exit_code == 0, result.output
+        assert "Saved" in result.output
+        assert (baselines_dir / "alpha.md").exists()
+
+    def test_compare_no_diff_reports_clean(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        baselines_dir = tmp_path / "baselines"
+        baselines_dir.mkdir()
+        monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines_dir)
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        # Save baseline first
+        runner.invoke(app, ["validate", "--save-baseline"])
+        # Compare against itself — no diff
+        result = runner.invoke(app, ["validate", "--compare"])
+        assert result.exit_code == 0, result.output
+        assert "no change" in result.output
+
+    def test_compare_no_baseline_warns(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
+        import soma.cli as cli_mod
+        baselines_dir = tmp_path / "baselines"
+        baselines_dir.mkdir()
+        monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines_dir)
+        root = tmp_path / "alpha"
+        make_repo(root, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(registry, {"alpha": root})
+        result = runner.invoke(app, ["validate", "--compare"])
+        assert result.exit_code == 0, result.output
+        assert "no baseline" in result.output
 
 
 class TestSearchCommand:

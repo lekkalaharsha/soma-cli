@@ -222,6 +222,31 @@ def _copy_to_clipboard(text: str) -> bool:
         return False
 
 
+def _parse_since(value: str) -> datetime:
+    """Parse '2026-06-01', '7d', '2w', '3h', 'yesterday' → UTC datetime.
+
+    Raises ValueError for unrecognised formats.
+    """
+    now = datetime.now(timezone.utc)
+    v = value.strip().lower()
+    if v == "yesterday":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    m = re.fullmatch(r"(\d+)(d|w|h)", v)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        delta = {"d": timedelta(days=n), "w": timedelta(weeks=n), "h": timedelta(hours=n)}[unit]
+        return now - delta
+    try:
+        dt = datetime.strptime(value.strip(), "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        pass
+    raise ValueError(
+        f"Cannot parse '{value}'. Use YYYY-MM-DD, Nd (days), Nw (weeks), Nh (hours), or 'yesterday'."
+    )
+
+
 @app.command()
 def context(
     project: str = typer.Argument(..., help="Project name to summarize."),
@@ -234,6 +259,11 @@ def context(
         False,
         "--copy",
         help="Copy output to clipboard instead of printing.",
+    ),
+    since: Optional[str] = typer.Option(
+        None,
+        "--since",
+        help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday).",
     ),
 ) -> None:
     """Generate a compact LLM-ready context summary for a project."""
@@ -248,9 +278,18 @@ def context(
             "Run [bold]soma status[/bold] to list projects."
         )
         raise typer.Exit(code=1)
+
+    since_dt: datetime | None = None
+    if since:
+        try:
+            since_dt = _parse_since(since)
+        except ValueError as exc:
+            console.print(f"[red]{escape(str(exc))}[/red]")
+            raise typer.Exit(code=1)
+
     root = Path(entry["root"])
     if not watch:
-        text = generate_context(project, root)
+        text = generate_context(project, root, since=since_dt)
         if copy:
             if _copy_to_clipboard(text):
                 console.print(f"[green]Copied[/green] context for [bold]{escape(project)}[/bold] to clipboard.")
@@ -291,13 +330,22 @@ _REQUIRED_SECTIONS = (
 _TOKEN_FLOOR = 350
 
 
+_BASELINES_DIR = Path.home() / ".soma" / "baselines"
+
+
 @app.command()
 def validate(
     project: Optional[str] = typer.Argument(
         None, help="Validate one project (default: all registered projects)."
     ),
+    save_baseline: bool = typer.Option(
+        False, "--save-baseline", help="Save current context output as a baseline for future --compare runs."
+    ),
+    compare: bool = typer.Option(
+        False, "--compare", help="Diff current context output against the saved baseline."
+    ),
 ) -> None:
-    """Check context quality for all projects: token budget, format, no secrets."""
+    """Check context quality; optionally save or diff against a baseline."""
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
@@ -314,6 +362,57 @@ def validate(
         targets = {project: entry}
     else:
         targets = registry
+
+    if save_baseline:
+        _BASELINES_DIR.mkdir(parents=True, exist_ok=True)
+        saved = 0
+        for name, entry in targets.items():
+            root = Path(entry["root"])
+            try:
+                text = generate_context(name, root)
+            except Exception:
+                continue
+            safe = re.sub(r"[^\w\-]", "_", name)
+            (_BASELINES_DIR / f"{safe}.md").write_text(text, encoding="utf-8", newline="\n")
+            saved += 1
+        console.print(f"[green]Saved[/green] {saved} baseline(s) to {escape(str(_BASELINES_DIR))}")
+        return
+
+    if compare:
+        import difflib
+        any_diff = False
+        for name, entry in targets.items():
+            safe = re.sub(r"[^\w\-]", "_", name)
+            baseline_path = _BASELINES_DIR / f"{safe}.md"
+            if not baseline_path.exists():
+                console.print(f"[yellow]{escape(name)}:[/yellow] no baseline — run [dim]soma validate --save-baseline[/dim] first.")
+                continue
+            root = Path(entry["root"])
+            try:
+                current = generate_context(name, root)
+            except Exception as exc:
+                console.print(f"[red]{escape(name)}:[/red] error — {escape(str(exc))}")
+                continue
+            baseline = baseline_path.read_text(encoding="utf-8")
+            diff = list(difflib.unified_diff(
+                baseline.splitlines(), current.splitlines(),
+                fromfile="baseline", tofile="current", lineterm=""
+            ))
+            if not diff:
+                console.print(f"[green]{escape(name)}:[/green] no change")
+            else:
+                any_diff = True
+                console.print(f"\n[bold yellow]{escape(name)}:[/bold yellow] {len(diff)} diff line(s)")
+                for line in diff[2:]:  # skip the --- / +++ header lines
+                    if line.startswith("+"):
+                        console.print(f"  [green]{escape(line)}[/green]")
+                    elif line.startswith("-"):
+                        console.print(f"  [red]{escape(line)}[/red]")
+                    else:
+                        console.print(f"  [dim]{escape(line)}[/dim]")
+        if any_diff:
+            raise typer.Exit(code=1)
+        return
 
     table = Table(title="SOMA — Context validation")
     table.add_column("Project", style="bold", max_width=28, no_wrap=True)

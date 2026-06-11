@@ -72,6 +72,7 @@ def generate_context(
     root: Path,
     now: datetime | None = None,
     max_tokens: int | None = None,
+    since: datetime | None = None,
 ) -> str:
     """Build the compact context summary for one project. Never raises on
     missing data — empty repos and non-git dirs produce valid output."""
@@ -82,7 +83,7 @@ def generate_context(
     cfg_dormant_days = cfg["dormant_days"]
 
     now = now or datetime.now(timezone.utc)
-    status = get_status(name, root)
+    status = get_status(name, root, since=since)
     description = _project_description(root)
     notes = load_notes(name)
     commit_stats = _fetch_commit_stats(root, cfg_max_commits)
@@ -94,13 +95,13 @@ def generate_context(
     confidence = _confidence(status)
 
     n_files, n_commits = cfg_max_files, cfg_max_commits
-    text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
+    text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits, since=since)
     while estimate_tokens(text) > effective_ceiling and n_files > 0:
         n_files -= 1
-        text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits, since=since)
     while estimate_tokens(text) > effective_ceiling and n_commits > 1:
         n_commits -= 1
-        text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits, since=since)
     return redact(text)
 
 
@@ -153,6 +154,7 @@ def _render(
     now: datetime,
     n_files: int,
     n_commits: int,
+    since: datetime | None = None,
 ) -> str:
     commit_lines = [
         _fmt_commit(c, commit_stats[i] if i < len(commit_stats) else None, now)
@@ -166,14 +168,15 @@ def _render(
     edited_in_window = sum(
         1 for _, when in files if now - when <= timedelta(days=STALE_DAYS)
     )
+    window_label = f"since {since:%Y-%m-%d}" if since else "7d"
     if status.commits_7d == 0 and not status.files_changed_7d and edited_in_window:
         plural = "file" if edited_in_window == 1 else "files"
         activity = (
-            f"**Activity (7d):** 0 commits, {edited_in_window} {plural} edited (uncommitted)"
+            f"**Activity ({window_label}):** 0 commits, {edited_in_window} {plural} edited (uncommitted)"
         )
     else:
         activity = (
-            f"**Activity (7d):** {status.commits_7d} commits, "
+            f"**Activity ({window_label}):** {status.commits_7d} commits, "
             f"{len(status.files_changed_7d)} files changed"
         )
     parts = [
