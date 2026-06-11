@@ -1252,7 +1252,7 @@ def tui() -> None:
     try:
         from soma.tui import run_tui  # noqa: PLC0415
     except ImportError:
-        console.print("[red]textual not installed.[/red] Run: pip install textual")
+        console.print("[red]textual not installed.[/red] Run: pip install 'soma-cli[tui]'")
         raise typer.Exit(code=1)
     run_tui(registry)
 
@@ -1279,7 +1279,7 @@ def mcp_start() -> None:
     try:
         from soma.mcp import mcp as _mcp  # noqa: PLC0415
     except ImportError:
-        console.print("[red]fastmcp not installed.[/red] Run: pip install fastmcp")
+        console.print("[red]fastmcp not installed.[/red] Run: pip install 'soma-cli[mcp]'")
         raise typer.Exit(code=1)
     _mcp.run()
 

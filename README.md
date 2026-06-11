@@ -36,11 +36,18 @@ Paste this into any LLM session. Your AI already knows the project.
 ## Install
 
 ```bash
-pip install soma-cli
+pip install soma-cli            # core CLI (no heavy deps)
+pip install 'soma-cli[mcp]'     # + MCP server for Claude Desktop / Cursor
+pip install 'soma-cli[tui]'     # + textual TUI dashboard
+pip install 'soma-cli[all]'     # everything
+
 soma init        # scan ~/ for git repos, register them
 soma status      # see all projects sorted by last activity
 soma context <project>   # generate context summary
 ```
+
+The core install stays lean — `fastmcp` and `textual` are optional extras,
+pulled in only if you use `soma mcp` or `soma tui`.
 
 ---
 
