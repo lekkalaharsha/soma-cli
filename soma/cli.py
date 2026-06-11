@@ -1241,5 +1241,95 @@ def _print_deep_view(s: ProjectStatus) -> None:
         console.print(f"[yellow]{escape(s.warning)}[/yellow]")
 
 
+mcp_app = typer.Typer(help="Manage the SOMA MCP server for Claude Desktop / Cursor.")
+app.add_typer(mcp_app, name="mcp")
+
+_CLAUDE_DESKTOP_CONFIG = {
+    "Darwin": Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
+    "Windows": Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Claude" / "claude_desktop_config.json",
+    "Linux": Path.home() / ".config" / "Claude" / "claude_desktop_config.json",
+}
+
+
+def _config_path() -> Path:
+    import platform
+    system = platform.system()
+    return _CLAUDE_DESKTOP_CONFIG.get(system, _CLAUDE_DESKTOP_CONFIG["Linux"])
+
+
+@mcp_app.command("start")
+def mcp_start() -> None:
+    """Start the SOMA MCP server (stdio transport — Claude Desktop spawns this)."""
+    try:
+        from soma.mcp import mcp as _mcp  # noqa: PLC0415
+    except ImportError:
+        console.print("[red]fastmcp not installed.[/red] Run: pip install fastmcp")
+        raise typer.Exit(code=1)
+    _mcp.run()
+
+
+@mcp_app.command("install")
+def mcp_install(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print config change without writing."),
+) -> None:
+    """Register soma MCP server in Claude Desktop config."""
+    import json as _json  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    soma_bin = shutil.which("soma") or sys.executable.replace("python", "soma")
+    server_entry = {
+        "command": soma_bin,
+        "args": ["mcp", "start"],
+    }
+
+    cfg_path = _config_path()
+    if dry_run:
+        console.print(f"[dim]Config path:[/dim] {escape(str(cfg_path))}")
+        console.print("[dim]Would add:[/dim]")
+        console.print(_json.dumps({"mcpServers": {"soma": server_entry}}, indent=2))
+        return
+
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    config: dict = {}
+    if cfg_path.exists():
+        try:
+            config = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            config = {}
+
+    config.setdefault("mcpServers", {})["soma"] = server_entry
+    cfg_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+    console.print(f"[green]Installed[/green] soma MCP server → {escape(str(cfg_path))}")
+    console.print("Restart Claude Desktop to activate.")
+
+
+@mcp_app.command("uninstall")
+def mcp_uninstall() -> None:
+    """Remove soma from Claude Desktop MCP config."""
+    import json as _json  # noqa: PLC0415
+
+    cfg_path = _config_path()
+    if not cfg_path.exists():
+        console.print("[dim]Claude Desktop config not found — nothing to remove.[/dim]")
+        return
+
+    try:
+        config = _json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        console.print("[red]Could not parse config file.[/red]")
+        raise typer.Exit(code=1)
+
+    servers = config.get("mcpServers", {})
+    if "soma" not in servers:
+        console.print("[dim]soma not found in MCP config.[/dim]")
+        return
+
+    del servers["soma"]
+    config["mcpServers"] = servers
+    cfg_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+    console.print(f"[green]Removed[/green] soma from {escape(str(cfg_path))}")
+
+
 if __name__ == "__main__":
     app()
