@@ -228,6 +228,34 @@ class TestNotes:
 
         _run(scenario)
 
+    def test_add_note_via_real_typing(self, two_projects, tmp_path: Path, monkeypatch) -> None:
+        """Press n, type characters (not set .value), Enter — the real user path."""
+        reg, _ = two_projects
+        import soma.tui as tui_mod
+        from soma.notes import add_note as real_add, load_notes as real_load
+        notes_file = tmp_path / "notes.toml"
+        monkeypatch.setattr(tui_mod, "add_note", partial(real_add, path=notes_file))
+        monkeypatch.setattr(tui_mod, "load_notes", partial(real_load, path=notes_file))
+
+        async def scenario() -> None:
+            app = SomaTUI(projects_file=reg)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                project = app.current_project
+                await pilot.press("n")
+                await pilot.pause()
+                inp = app.screen.query_one("#note-input", Input)
+                assert inp.has_focus  # input must own focus so keystrokes land
+                await pilot.press("h", "i", "space", "t", "h", "e", "r", "e")
+                await pilot.pause()
+                assert inp.value == "hi there"
+                await pilot.press("enter")
+                await pilot.pause()
+                notes = real_load(project, path=notes_file)
+                assert any(n.text == "hi there" for n in notes)
+
+        _run(scenario)
+
     def test_add_note_updates_panel(self, two_projects, tmp_path: Path, monkeypatch) -> None:
         reg, _ = two_projects
         import soma.tui as tui_mod

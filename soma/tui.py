@@ -27,6 +27,26 @@ from soma.status import ProjectStatus, collect_statuses, humanize_delta
 class NoteModal(ModalScreen[str | None]):
     """Single-line input overlay for adding a note to the selected project."""
 
+    CSS = """
+    NoteModal {
+        align: center middle;
+        background: $background 60%;
+    }
+
+    NoteModal > #note-dialog {
+        width: 60;
+        max-width: 90%;
+        height: auto;
+        padding: 1 2;
+        border: thick $primary;
+        background: $surface;
+    }
+
+    NoteModal #note-input {
+        margin-top: 1;
+    }
+    """
+
     BINDINGS = [("escape", "cancel", "Cancel")]
 
     def __init__(self, project: str) -> None:
@@ -74,14 +94,6 @@ class SomaTUI(App):
         height: 12;
         border: round $warning;
         padding: 0 1;
-    }
-
-    #note-dialog {
-        width: 60;
-        height: auto;
-        padding: 1 2;
-        border: thick $primary;
-        background: $surface;
     }
 
     DataTable { height: 1fr; }
