@@ -79,7 +79,7 @@ def generate_context(
     commit_stats = _fetch_commit_stats(root, MAX_COMMITS)
     files = _files_in_motion(root, status.files_changed_7d)
     if not files:
-        files = _recent_files_by_mtime(root)
+        files = _recent_files_by_mtime(root, now)
     blockers = _detect_blockers(status, root, files, now)
     focus = _suggested_focus(status, files, now)
     confidence = _confidence(status)
@@ -206,8 +206,16 @@ def _files_in_motion(root: Path, candidates: list[str]) -> list[tuple[str, datet
     return out[:MAX_FILES]
 
 
-def _recent_files_by_mtime(root: Path) -> list[tuple[str, datetime]]:
-    """Fallback for non-git/quiet repos: newest watched files by mtime."""
+def _recent_files_by_mtime(
+    root: Path, now: datetime | None = None
+) -> list[tuple[str, datetime]]:
+    """Fallback for non-git/quiet repos: newest watched files by mtime.
+
+    Files older than DORMANT_DAYS are omitted — showing 86d-old files as
+    "in motion" is misleading for dormant repos.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=DORMANT_DAYS)).timestamp()
     deadline = time.monotonic() + FILE_WALK_BUDGET_S
     found: list[tuple[str, float]] = []
     _walk_files(str(root), root, deadline, found)
@@ -215,6 +223,7 @@ def _recent_files_by_mtime(root: Path) -> list[tuple[str, datetime]]:
     return [
         (rel, datetime.fromtimestamp(ts, tz=timezone.utc))
         for rel, ts in found[:MAX_FILES]
+        if ts >= cutoff
     ]
 
 
