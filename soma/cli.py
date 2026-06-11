@@ -15,13 +15,39 @@ from soma.detect import PROJECTS_FILE, find_git_roots, load_registry, register_p
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
-app = typer.Typer(help="SOMA — System Omniscient Memory Agent (v1)")
+app = typer.Typer(
+    help="SOMA — System Omniscient Memory Agent (v1)",
+    invoke_without_command=True,
+)
 console = Console()
 
 
 @app.callback()
-def main() -> None:
-    """Keep typer in subcommand mode."""
+def main(ctx: typer.Context) -> None:
+    """Your repos already remember everything. Now they can tell your AI."""
+    if ctx.invoked_subcommand is not None:
+        return
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("[bold]SOMA[/bold] — no projects registered yet.")
+        console.print("  Run [bold cyan]soma init[/bold cyan] to scan your home directory.")
+        return
+    statuses = collect_statuses(registry)
+    active = [s for s in statuses if s.commits_7d > 0][:5]
+    console.print(f"[bold]SOMA[/bold] — {len(registry)} project(s) registered\n")
+    if active:
+        console.print("[bold]Recently active:[/bold]")
+        for s in active:
+            console.print(
+                f"  [cyan]{escape(s.name):<28}[/cyan] "
+                f"{humanize_delta(s.last_active):<12} "
+                f"[dim]{escape(s.branch)}[/dim]"
+            )
+    console.print(
+        f"\n[dim]soma status[/dim]          all projects"
+        f"\n[dim]soma context <project>[/dim]  generate LLM summary"
+        f"\n[dim]soma history[/dim]         last 7 days of activity"
+    )
 
 
 @app.command()
