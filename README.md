@@ -15,8 +15,8 @@ soma context myproject
 **What this is:** A CLI tool that scans git repos and generates LLM context summaries.
 
 ## Recent work
-- feat: add watch mode for CLAUDE.md generation (2h ago)
-- fix: correct token budget truncation order (4h ago)
+- feat: add watch mode (+18/-2) (2h ago)
+- fix: correct token budget truncation order (+6/-4) (4h ago)
 
 ## Files in motion
 - src/context.py (2h ago)
@@ -53,10 +53,13 @@ soma context <project>   # generate context summary
 | `soma status <project>` | Deep view: recent commits, files changed, warnings |
 | `soma history` | Timestamped activity log, last 7 days |
 | `soma history --days 30 --markdown` | Export to markdown for standups/notes |
-| `soma context <project>` | Generate LLM-ready context summary |
+| `soma context <project>` | Generate LLM-ready context summary (with diff stats per commit) |
 | `soma context <project> --watch` | Keep CLAUDE.md in the repo up-to-date on file changes |
 | `soma forget <project>` | Remove a project from the registry (does not delete files) |
 | `soma validate` | Health check: token budget, format, secrets across all projects |
+| `soma --version` | Show installed version |
+| `soma --update` | Upgrade soma-cli via pip |
+| `soma --uninstall` | Interactive uninstall (optionally purges `~/.soma/`) |
 
 ---
 
@@ -75,10 +78,25 @@ soma context <project>   # generate context summary
 
 soma reads two sources:
 
-1. **`git log`** — commits, branches, changed files (via gitpython)
+1. **`git log`** — commits, branches, changed files, diff stats (via gitpython)
 2. **File mtimes** — catches uncommitted edits git doesn't see
 
 No event logging, no process watching. The filesystem is the daemon.
+
+---
+
+## Context format
+
+Every `soma context` output follows a fixed schema an LLM can parse reliably:
+
+- **Branch + last active + activity** — orientation line
+- **What this is** — extracted from README or pyproject.toml description
+- **Recent work** — last 5 commits with `(+insertions/-deletions)` diff stats
+- **Files in motion** — up to 8 files sorted by recency (omits files untouched >30d)
+- **Possible blockers** — stale branch, TODO/FIXME in active files, fix storms
+- **Suggested focus** — derived from most recent activity cluster
+
+Target: 350–600 tokens. Active repos typically land at 340–400.
 
 ---
 
