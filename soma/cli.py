@@ -20,11 +20,18 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
+_VERSION = "0.1.0"
 
 
 @app.callback()
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    version: bool = typer.Option(False, "--version", "-V", help="Show version and exit.", is_eager=True),
+) -> None:
     """Your repos already remember everything. Now they can tell your AI."""
+    if version:
+        typer.echo(f"soma-cli {_VERSION}")
+        raise typer.Exit()
     if ctx.invoked_subcommand is not None:
         return
     registry = load_registry(PROJECTS_FILE)
