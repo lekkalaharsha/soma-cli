@@ -1,0 +1,53 @@
+HOW TO RECORD THE DEMO GIF
+==========================
+
+OPTION A — asciinema (WSL2, best quality)
+------------------------------------------
+1. Install tools (one-time):
+     pip install soma-cli          # or: pip install -e .
+     sudo apt install asciinema
+     cargo install agg             # or: pip install agg
+
+2. Set terminal size (important for clean output):
+     resize -s 30 100              # 30 rows × 100 cols
+
+3. Record:
+     asciinema rec soma_demo.cast --overwrite
+     bash scripts/demo.sh
+     exit
+
+4. Convert to GIF:
+     agg soma_demo.cast docs/soma_demo.gif \
+         --theme monokai \
+         --font-size 14 \
+         --speed 1.2
+
+5. Preview:
+     xdg-open docs/soma_demo.gif
+
+OPTION B — ScreenToGif (Windows, easiest)
+------------------------------------------
+1. Download: https://www.screentogif.com
+2. Open Windows Terminal → WSL2 → resize to ~100×30
+3. Open ScreenToGif → Recorder → drag over terminal window
+4. Run:   bash scripts/demo.sh
+5. Stop recording → Editor → reduce frame delay on banners
+6. Save as GIF → docs/soma_demo.gif
+
+TIPS
+----
+- Set DEMO_PROJECT env var to your most recognisable project name:
+    DEMO_PROJECT=merops-x bash scripts/demo.sh
+
+- Adjust PAUSE variable in demo.sh (top of file) to slow down / speed up.
+
+- Keep terminal font: JetBrains Mono or Fira Code, size 14, dark theme.
+
+- Target GIF size: < 3 MB for GitHub README embedding.
+  If too large: agg --speed 1.5  or trim silent pauses in ScreenToGif editor.
+
+WHERE TO USE THE GIF
+--------------------
+- README.md: ![SOMA demo](docs/soma_demo.gif)
+- GitHub release page: attach as asset
+- Social posts (Twitter/X, LinkedIn): upload directly
