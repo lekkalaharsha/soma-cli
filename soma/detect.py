@@ -118,6 +118,18 @@ def forget_project(name: str, path: Path = PROJECTS_FILE) -> bool:
     return True
 
 
+def rename_project(old: str, new: str, path: Path = PROJECTS_FILE) -> bool:
+    """Rename a project in the registry. Returns True on success, False if old not found."""
+    registry = load_registry(path)
+    if old not in registry:
+        return False
+    registry[new] = registry.pop(old)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as f:
+        tomli_w.dump({"projects": registry}, f)
+    return True
+
+
 def _unique_name(base_name: str, registry: dict[str, dict]) -> str:
     if base_name not in registry:
         return base_name

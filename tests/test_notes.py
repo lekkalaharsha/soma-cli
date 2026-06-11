@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from conftest import NOW, make_repo, write_registry
 from soma.cli import app
 from soma.context import generate_context
-from soma.notes import Note, add_note, clear_notes, load_notes
+from soma.notes import Note, add_note, clear_notes, load_notes, rename_notes
 
 runner = CliRunner()
 
@@ -54,6 +54,19 @@ class TestNotesStorage:
         add_note("beta", "beta note", nf)
         assert load_notes("alpha", nf)[0].text == "alpha note"
         assert load_notes("beta", nf)[0].text == "beta note"
+
+    def test_rename_moves_notes(self, tmp_path: Path) -> None:
+        nf = tmp_path / "notes.toml"
+        add_note("alpha", "first note", nf)
+        add_note("alpha", "second note", nf)
+        rename_notes("alpha", "renamed-alpha", nf)
+        assert load_notes("alpha", nf) == []
+        notes = load_notes("renamed-alpha", nf)
+        assert len(notes) == 2
+
+    def test_rename_nonexistent_is_noop(self, tmp_path: Path) -> None:
+        nf = tmp_path / "notes.toml"
+        rename_notes("ghost", "new-name", nf)  # must not raise
 
 
 class TestNotesInContext:
@@ -118,6 +131,29 @@ class TestNotesCLI:
         result = runner.invoke(app, ["note", "ghost", "text"])
         assert result.exit_code == 1
         assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+
+class TestRenameCLI:
+    def test_rename_succeeds(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["rename", "alpha", "beta"])
+        assert result.exit_code == 0, result.output
+        assert "beta" in result.output
+        assert "Traceback" not in result.output
+
+    def test_rename_unknown_old_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha"})
+        result = runner.invoke(app, ["rename", "ghost", "new-name"])
+        assert result.exit_code == 1
+        assert "ghost" in result.output
+        assert "Traceback" not in result.output
+
+    def test_rename_conflict_fails(self, registry: Path, tmp_path: Path) -> None:
+        write_registry(registry, {"alpha": tmp_path / "alpha", "beta": tmp_path / "beta"})
+        result = runner.invoke(app, ["rename", "alpha", "beta"])
+        assert result.exit_code == 1
+        assert "taken" in result.output.lower() or "beta" in result.output
         assert "Traceback" not in result.output
 
 

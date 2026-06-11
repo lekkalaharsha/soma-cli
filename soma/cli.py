@@ -15,8 +15,8 @@ from rich.table import Table
 from datetime import datetime, timedelta, timezone
 
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
-from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects
-from soma.notes import add_note, clear_notes, load_notes
+from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects, rename_project
+from soma.notes import add_note, clear_notes, load_notes, rename_notes
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -434,6 +434,33 @@ def briefing() -> None:
     if total_notes:
         console.print(f"[yellow]{total_notes} project(s) have pending notes.[/yellow] "
                       "Run [dim]soma note <project> --list[/dim] to review.")
+
+
+@app.command()
+def rename(
+    old: str = typer.Argument(..., help="Current project name."),
+    new: str = typer.Argument(..., help="New project name."),
+) -> None:
+    """Rename a project in the SOMA registry."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if old not in registry:
+        console.print(
+            f"[red]Unknown project:[/red] {escape(old)}. "
+            "Run [bold]soma status[/bold] to list projects."
+        )
+        raise typer.Exit(code=1)
+    if new in registry:
+        console.print(
+            f"[red]Name already taken:[/red] {escape(new)}. "
+            "Choose a different name."
+        )
+        raise typer.Exit(code=1)
+    rename_project(old, new, PROJECTS_FILE)
+    rename_notes(old, new)
+    console.print(f"[green]Renamed[/green] [bold]{escape(old)}[/bold] → [bold]{escape(new)}[/bold].")
 
 
 @app.command()
