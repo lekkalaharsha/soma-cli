@@ -17,7 +17,11 @@ from datetime import datetime, timedelta, timezone
 
 from soma.config import DEFAULTS, VALID_KEYS, load_config, reset_config, set_config
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
-from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects, rename_project
+from soma.detect import (
+    PROJECTS_FILE, add_tag, find_git_roots, forget_project, get_tags,
+    is_archived, load_registry, projects_by_tag, register_projects,
+    remove_tag, rename_project, set_archived,
+)
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
@@ -249,34 +253,16 @@ def _parse_since(value: str) -> datetime:
 
 @app.command()
 def context(
-    project: str = typer.Argument(..., help="Project name to summarize."),
-    watch: bool = typer.Option(
-        False,
-        "--watch",
-        help="Keep running: write CLAUDE.md into the repo and regenerate on change.",
-    ),
-    copy: bool = typer.Option(
-        False,
-        "--copy",
-        help="Copy output to clipboard instead of printing.",
-    ),
-    since: Optional[str] = typer.Option(
-        None,
-        "--since",
-        help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday).",
-    ),
+    project: Optional[str] = typer.Argument(None, help="Project name to summarize."),
+    watch: bool = typer.Option(False, "--watch", help="Keep running: write CLAUDE.md into the repo and regenerate on change."),
+    copy: bool = typer.Option(False, "--copy", help="Copy output to clipboard instead of printing."),
+    since: Optional[str] = typer.Option(None, "--since", help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday)."),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Generate context for all projects with this tag."),
 ) -> None:
-    """Generate a compact LLM-ready context summary for a project."""
+    """Generate a compact LLM-ready context summary for a project or tag group."""
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
-        raise typer.Exit(code=1)
-    entry = registry.get(project)
-    if entry is None:
-        console.print(
-            f"[red]Unknown project:[/red] {escape(project)}. "
-            "Run [bold]soma status[/bold] to list projects."
-        )
         raise typer.Exit(code=1)
 
     since_dt: datetime | None = None
@@ -286,6 +272,34 @@ def context(
         except ValueError as exc:
             console.print(f"[red]{escape(str(exc))}[/red]")
             raise typer.Exit(code=1)
+
+    # --group: print context for every project with that tag
+    if group:
+        targets = projects_by_tag(group, PROJECTS_FILE)
+        if not targets:
+            console.print(f"[red]No projects tagged:[/red] {escape(group)}.")
+            raise typer.Exit(code=1)
+        parts: list[str] = []
+        for name, entry in targets.items():
+            parts.append(generate_context(name, Path(entry["root"]), since=since_dt))
+        combined = "\n\n---\n\n".join(parts)
+        if copy:
+            if _copy_to_clipboard(combined):
+                console.print(f"[green]Copied[/green] {len(targets)} context(s) for group [cyan]{escape(group)}[/cyan].")
+            else:
+                typer.echo(combined)
+        else:
+            typer.echo(combined)
+        return
+
+    if project is None:
+        console.print("[red]Provide a project name or --group <tag>.[/red]")
+        raise typer.Exit(code=1)
+
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}. Run [bold]soma status[/bold] to list projects.")
+        raise typer.Exit(code=1)
 
     root = Path(entry["root"])
     if not watch:
@@ -297,7 +311,6 @@ def context(
                 console.print("[yellow]Clipboard unavailable.[/yellow] Printing instead:")
                 typer.echo(text)
         else:
-            # Plain echo, not rich: the output is markdown meant to be copy-pasted.
             typer.echo(text)
         return
 
@@ -509,7 +522,10 @@ def note(
 
 
 @app.command()
-def briefing() -> None:
+def briefing(
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Filter to projects with this tag."),
+    show_all: bool = typer.Option(False, "--all", help="Include archived projects."),
+) -> None:
     """Morning summary: active, quiet, and dormant projects with pending notes."""
     registry = load_registry(PROJECTS_FILE)
     if not registry:
@@ -517,7 +533,19 @@ def briefing() -> None:
         raise typer.Exit(code=1)
 
     now = datetime.now(timezone.utc)
-    statuses = collect_statuses(registry)
+
+    # Filter by group tag and archived state before collecting statuses
+    visible = {
+        n: e for n, e in registry.items()
+        if (show_all or not e.get("archived", False))
+        and (group is None or group in e.get("tags", []))
+    }
+    if not visible:
+        label = f"group [cyan]{escape(group)}[/cyan]" if group else "registry"
+        console.print(f"[dim]No projects in {label}.[/dim]")
+        raise typer.Exit(code=1)
+
+    statuses = collect_statuses(visible)
 
     active, quiet, dormant = [], [], []
     for s in statuses:
@@ -529,8 +557,9 @@ def briefing() -> None:
         else:
             dormant.append(s)
 
+    group_label = f" [{escape(group)}]" if group else ""
     date_str = now.strftime("%Y-%m-%d %H:%M")
-    console.print(f"\n[bold]SOMA Briefing[/bold] — {date_str}\n")
+    console.print(f"\n[bold]SOMA Briefing{group_label}[/bold] — {date_str}\n")
 
     def _row(s: ProjectStatus) -> None:
         notes = load_notes(s.name)
@@ -813,6 +842,73 @@ def search(
         raise typer.Exit(code=1)
     else:
         console.print(f"\n[dim]{total_hits} match(es) across {len(targets)} project(s).[/dim]")
+
+
+@app.command()
+def tag(
+    project: str = typer.Argument(..., help="Project name."),
+    tag_name: Optional[str] = typer.Argument(None, help="Tag to add."),
+    remove: Optional[str] = typer.Option(None, "--remove", "-r", help="Tag to remove."),
+    list_tags: bool = typer.Option(False, "--list", "-l", help="List current tags."),
+) -> None:
+    """Add, remove, or list tags on a project."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    if remove:
+        if not remove_tag(project, remove, PROJECTS_FILE):
+            console.print(f"[yellow]Tag '{escape(remove)}' not on {escape(project)}.[/yellow]")
+        else:
+            console.print(f"[green]Removed[/green] tag [bold]{escape(remove)}[/bold] from {escape(project)}.")
+        return
+
+    if list_tags or tag_name is None:
+        tags = get_tags(project, PROJECTS_FILE)
+        if tags:
+            console.print(f"[bold]{escape(project)}[/bold] tags: " + ", ".join(f"[cyan]{escape(t)}[/cyan]" for t in tags))
+        else:
+            console.print(f"[dim]{escape(project)} has no tags.[/dim]")
+        return
+
+    add_tag(project, tag_name, PROJECTS_FILE)
+    console.print(f"[green]Tagged[/green] [bold]{escape(project)}[/bold] → [cyan]{escape(tag_name)}[/cyan].")
+
+
+@app.command()
+def archive(
+    project: str = typer.Argument(..., help="Project to archive."),
+) -> None:
+    """Archive a project — hidden from soma briefing unless --all."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+    set_archived(project, True, PROJECTS_FILE)
+    console.print(f"[dim]Archived[/dim] [bold]{escape(project)}[/bold]. Hidden from briefing (use [dim]soma briefing --all[/dim] to show).")
+
+
+@app.command()
+def unarchive(
+    project: str = typer.Argument(..., help="Project to restore."),
+) -> None:
+    """Restore an archived project to active tier."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+    set_archived(project, False, PROJECTS_FILE)
+    console.print(f"[green]Restored[/green] [bold]{escape(project)}[/bold] to active tier.")
 
 
 def _print_deep_view(s: ProjectStatus) -> None:
