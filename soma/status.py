@@ -47,9 +47,7 @@ class ProjectStatus(BaseModel):
 def get_status(name: str, root: Path) -> ProjectStatus:
     """Gather status for one project. Never raises on git problems."""
     status = ProjectStatus(name=name, root=str(root))
-    mtime, truncated = _latest_watched_mtime(root)
-    if truncated:
-        status.warning = "file scan truncated — last_active from git/partial mtimes"
+    mtime, _ = _latest_watched_mtime(root)  # truncation is expected on large repos, not a warning
     git_time: datetime | None = None
     try:
         repo = Repo(root)
