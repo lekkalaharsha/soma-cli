@@ -1,6 +1,7 @@
 """SOMA v1 CLI entry point. Commands: init, status, history, context."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -15,9 +16,15 @@ from rich.table import Table
 
 from datetime import datetime, timedelta, timezone
 
-from soma.config import DEFAULTS, VALID_KEYS, load_config, reset_config, set_config
-from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
-from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects, rename_project
+from soma.config import DEFAULTS, VALID_KEYS, _BOUNDS, load_config, reset_config, set_config
+from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, generate_context_dict, write_context_file
+from soma.detect import (
+    PROJECTS_FILE, add_tag, find_git_roots, forget_project, get_tags,
+    is_archived, load_registry, projects_by_tag, register_projects,
+    remove_tag, rename_project, set_archived,
+)
+from soma.activity import build_activity_data, render_heatmap
+from soma.filters import is_watched, should_ignore
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
@@ -27,7 +34,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
-_VERSION = "0.2.0"
+_VERSION = "0.3.0"
 
 
 @app.callback()
@@ -125,8 +132,11 @@ def status(
     project: Optional[str] = typer.Argument(
         None, help="Project name for a deep view (default: all projects)."
     ),
+    json_out: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
 ) -> None:
     """Show activity status for all projects, or a deep view of one."""
+    import json as _json
+
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
@@ -140,10 +150,18 @@ def status(
                 "Run [bold]soma status[/bold] to list projects."
             )
             raise typer.Exit(code=1)
-        _print_deep_view(get_status_safe(project, Path(entry["root"])))
+        s = get_status_safe(project, Path(entry["root"]))
+        if json_out:
+            typer.echo(_json.dumps(_status_to_dict(s), indent=2))
+            return
+        _print_deep_view(s)
         return
 
     statuses = collect_statuses(registry)
+    if json_out:
+        typer.echo(_json.dumps([_status_to_dict(s) for s in statuses], indent=2))
+        return
+
     table = Table(title=f"SOMA — {len(statuses)} project(s)")
     table.add_column("Project", style="bold")
     table.add_column("Last Active")
@@ -249,34 +267,23 @@ def _parse_since(value: str) -> datetime:
 
 @app.command()
 def context(
-    project: str = typer.Argument(..., help="Project name to summarize."),
-    watch: bool = typer.Option(
-        False,
-        "--watch",
-        help="Keep running: write CLAUDE.md into the repo and regenerate on change.",
-    ),
-    copy: bool = typer.Option(
-        False,
-        "--copy",
-        help="Copy output to clipboard instead of printing.",
-    ),
-    since: Optional[str] = typer.Option(
-        None,
-        "--since",
-        help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday).",
-    ),
+    project: Optional[str] = typer.Argument(None, help="Project name to summarize."),
+    watch: bool = typer.Option(False, "--watch", help="Keep running: write CLAUDE.md into the repo and regenerate on change."),
+    copy: bool = typer.Option(False, "--copy", help="Copy output to clipboard instead of printing."),
+    since: Optional[str] = typer.Option(None, "--since", help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday)."),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Generate context for all projects with this tag."),
+    fmt: str = typer.Option("text", "--format", "-f", help="Output format: text or json."),
 ) -> None:
-    """Generate a compact LLM-ready context summary for a project."""
+    """Generate a compact LLM-ready context summary for a project or tag group."""
+    import json as _json
+
+    if fmt not in ("text", "json"):
+        console.print(f"[red]Unknown format:[/red] {escape(fmt)}. Use 'text' or 'json'.")
+        raise typer.Exit(code=1)
+
     registry = load_registry(PROJECTS_FILE)
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
-        raise typer.Exit(code=1)
-    entry = registry.get(project)
-    if entry is None:
-        console.print(
-            f"[red]Unknown project:[/red] {escape(project)}. "
-            "Run [bold]soma status[/bold] to list projects."
-        )
         raise typer.Exit(code=1)
 
     since_dt: datetime | None = None
@@ -287,8 +294,44 @@ def context(
             console.print(f"[red]{escape(str(exc))}[/red]")
             raise typer.Exit(code=1)
 
+    # --group: print context for every project with that tag
+    if group:
+        targets = projects_by_tag(group, PROJECTS_FILE)
+        if not targets:
+            console.print(f"[red]No projects tagged:[/red] {escape(group)}.")
+            raise typer.Exit(code=1)
+        if fmt == "json":
+            results = [generate_context_dict(name, Path(entry["root"]), since=since_dt) for name, entry in targets.items()]
+            typer.echo(_json.dumps(results, indent=2))
+            return
+        parts: list[str] = []
+        for name, entry in targets.items():
+            parts.append(generate_context(name, Path(entry["root"]), since=since_dt))
+        combined = "\n\n---\n\n".join(parts)
+        if copy:
+            if _copy_to_clipboard(combined):
+                console.print(f"[green]Copied[/green] {len(targets)} context(s) for group [cyan]{escape(group)}[/cyan].")
+            else:
+                typer.echo(combined)
+        else:
+            typer.echo(combined)
+        return
+
+    if project is None:
+        console.print("[red]Provide a project name or --group <tag>.[/red]")
+        raise typer.Exit(code=1)
+
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}. Run [bold]soma status[/bold] to list projects.")
+        raise typer.Exit(code=1)
+
     root = Path(entry["root"])
     if not watch:
+        if fmt == "json":
+            data = generate_context_dict(project, root, since=since_dt)
+            typer.echo(_json.dumps(data, indent=2))
+            return
         text = generate_context(project, root, since=since_dt)
         if copy:
             if _copy_to_clipboard(text):
@@ -297,23 +340,36 @@ def context(
                 console.print("[yellow]Clipboard unavailable.[/yellow] Printing instead:")
                 typer.echo(text)
         else:
-            # Plain echo, not rich: the output is markdown meant to be copy-pasted.
             typer.echo(text)
         return
 
     console.print(
         f"Watching [bold]{escape(project)}[/bold] — regenerating "
-        f"{escape(str(root / 'CLAUDE.md'))} on change. Ctrl+C to stop."
+        f"{escape(str(root / 'CLAUDE.md'))} on change (3s quiet window). Ctrl+C to stop."
     )
-    last: Optional[str] = None
+    last_text: Optional[str] = None
+    prev_mtimes: dict[str, float] = {}
+    dirty_since: float | None = None
+    _DEBOUNCE_S = 3.0
+    _POLL_S = 0.5
     try:
         while True:
-            text = generate_context(project, root)
-            if text != last:
-                target = write_context_file(root, text)
-                console.print(f"[green]updated[/green] {escape(str(target))}")
-                last = text
-            time.sleep(5)
+            current_mtimes = _collect_mtimes(root)
+            if current_mtimes != prev_mtimes:
+                prev_mtimes = current_mtimes
+                dirty_since = time.monotonic()
+            if dirty_since is not None and time.monotonic() - dirty_since >= _DEBOUNCE_S:
+                dirty_since = None
+                try:
+                    text = generate_context(project, root)
+                except Exception:
+                    time.sleep(_POLL_S)
+                    continue
+                if text != last_text:
+                    target = write_context_file(root, text)
+                    console.print(f"[green]updated[/green] {escape(str(target))}")
+                    last_text = text
+            time.sleep(_POLL_S)
     except UnsafeTargetError as exc:
         console.print(f"[red]{escape(str(exc))}[/red]")
         raise typer.Exit(code=1)
@@ -509,7 +565,10 @@ def note(
 
 
 @app.command()
-def briefing() -> None:
+def briefing(
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Filter to projects with this tag."),
+    show_all: bool = typer.Option(False, "--all", help="Include archived projects."),
+) -> None:
     """Morning summary: active, quiet, and dormant projects with pending notes."""
     registry = load_registry(PROJECTS_FILE)
     if not registry:
@@ -517,7 +576,19 @@ def briefing() -> None:
         raise typer.Exit(code=1)
 
     now = datetime.now(timezone.utc)
-    statuses = collect_statuses(registry)
+
+    # Filter by group tag and archived state before collecting statuses
+    visible = {
+        n: e for n, e in registry.items()
+        if (show_all or not e.get("archived", False))
+        and (group is None or group in e.get("tags", []))
+    }
+    if not visible:
+        label = f"group [cyan]{escape(group)}[/cyan]" if group else "registry"
+        console.print(f"[dim]No projects in {label}.[/dim]")
+        raise typer.Exit(code=1)
+
+    statuses = collect_statuses(visible)
 
     active, quiet, dormant = [], [], []
     for s in statuses:
@@ -529,8 +600,9 @@ def briefing() -> None:
         else:
             dormant.append(s)
 
+    group_label = f" [{escape(group)}]" if group else ""
     date_str = now.strftime("%Y-%m-%d %H:%M")
-    console.print(f"\n[bold]SOMA Briefing[/bold] — {date_str}\n")
+    console.print(f"\n[bold]SOMA Briefing{group_label}[/bold] — {date_str}\n")
 
     def _row(s: ProjectStatus) -> None:
         notes = load_notes(s.name)
@@ -815,6 +887,335 @@ def search(
         console.print(f"\n[dim]{total_hits} match(es) across {len(targets)} project(s).[/dim]")
 
 
+@app.command()
+def tag(
+    project: str = typer.Argument(..., help="Project name."),
+    tag_name: Optional[str] = typer.Argument(None, help="Tag to add."),
+    remove: Optional[str] = typer.Option(None, "--remove", "-r", help="Tag to remove."),
+    list_tags: bool = typer.Option(False, "--list", "-l", help="List current tags."),
+) -> None:
+    """Add, remove, or list tags on a project."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    if remove:
+        if not remove_tag(project, remove, PROJECTS_FILE):
+            console.print(f"[yellow]Tag '{escape(remove)}' not on {escape(project)}.[/yellow]")
+        else:
+            console.print(f"[green]Removed[/green] tag [bold]{escape(remove)}[/bold] from {escape(project)}.")
+        return
+
+    if list_tags or tag_name is None:
+        tags = get_tags(project, PROJECTS_FILE)
+        if tags:
+            console.print(f"[bold]{escape(project)}[/bold] tags: " + ", ".join(f"[cyan]{escape(t)}[/cyan]" for t in tags))
+        else:
+            console.print(f"[dim]{escape(project)} has no tags.[/dim]")
+        return
+
+    add_tag(project, tag_name, PROJECTS_FILE)
+    console.print(f"[green]Tagged[/green] [bold]{escape(project)}[/bold] → [cyan]{escape(tag_name)}[/cyan].")
+
+
+@app.command()
+def archive(
+    project: str = typer.Argument(..., help="Project to archive."),
+) -> None:
+    """Archive a project — hidden from soma briefing unless --all."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+    set_archived(project, True, PROJECTS_FILE)
+    console.print(f"[dim]Archived[/dim] [bold]{escape(project)}[/bold]. Hidden from briefing (use [dim]soma briefing --all[/dim] to show).")
+
+
+@app.command()
+def unarchive(
+    project: str = typer.Argument(..., help="Project to restore."),
+) -> None:
+    """Restore an archived project to active tier."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+    set_archived(project, False, PROJECTS_FILE)
+    console.print(f"[green]Restored[/green] [bold]{escape(project)}[/bold] to active tier.")
+
+
+@app.command()
+def diff(
+    project: str = typer.Argument(..., help="Project to diff against its saved baseline."),
+) -> None:
+    """Show what changed in a project's context since the last saved baseline."""
+    import difflib as _dl
+
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    safe = re.sub(r"[^\w\-]", "_", project)
+    baseline_path = _BASELINES_DIR / f"{safe}.md"
+    if not baseline_path.exists():
+        console.print(
+            f"[yellow]No baseline for[/yellow] [bold]{escape(project)}[/bold]. "
+            f"Run [dim]soma validate {escape(project)} --save-baseline[/dim] first."
+        )
+        raise typer.Exit(code=1)
+
+    root = Path(entry["root"])
+    try:
+        current = generate_context(project, root)
+    except Exception as exc:
+        console.print(f"[red]Error generating context:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1)
+
+    baseline = baseline_path.read_text(encoding="utf-8")
+    lines = list(_dl.unified_diff(
+        baseline.splitlines(), current.splitlines(),
+        fromfile="baseline", tofile="current", lineterm="",
+    ))
+    if not lines:
+        console.print(f"[green]{escape(project)}:[/green] no change since baseline.")
+        return
+
+    console.print(f"\n[bold yellow]{escape(project)}[/bold yellow] — {len(lines)} diff line(s)\n")
+    for line in lines[2:]:  # skip --- / +++ headers
+        if line.startswith("+"):
+            console.print(f"  [green]{escape(line)}[/green]")
+        elif line.startswith("-"):
+            console.print(f"  [red]{escape(line)}[/red]")
+        else:
+            console.print(f"  [dim]{escape(line)}[/dim]")
+    raise typer.Exit(code=1)
+
+
+@app.command()
+def doctor() -> None:
+    """Check registry integrity, stale roots, config bounds, and git availability."""
+    import shutil
+
+    issues: list[str] = []
+    ok: list[str] = []
+
+    # git binary available
+    if shutil.which("git"):
+        ok.append("git binary found")
+    else:
+        issues.append("git binary not found — soma needs git on PATH")
+
+    # config bounds
+    cfg = load_config()
+    for key, (lo, hi) in _BOUNDS.items():
+        val = cfg.get(key, DEFAULTS[key])
+        if lo <= val <= hi:
+            ok.append(f"config {key}={val} (in bounds {lo}–{hi})")
+        else:
+            issues.append(f"config {key}={val} out of bounds [{lo}, {hi}]")
+
+    # registry integrity
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        ok.append("registry empty (run soma init to populate)")
+    else:
+        stale = []
+        non_git = []
+        for name, entry in registry.items():
+            root = Path(entry.get("root", ""))
+            if not root.exists():
+                stale.append(name)
+            elif not (root / ".git").exists():
+                non_git.append(name)
+        ok.append(f"{len(registry)} projects registered")
+        if stale:
+            issues.append(f"stale roots (directory missing): {', '.join(stale)}")
+        else:
+            ok.append("all registered roots exist")
+        if non_git:
+            issues.append(f"non-git roots: {', '.join(non_git)}")
+        else:
+            ok.append("all roots are git repos")
+
+    for msg in ok:
+        console.print(f"  [green]✓[/green] {msg}")
+    for msg in issues:
+        console.print(f"  [red]✗[/red] {msg}")
+
+    if issues:
+        console.print(f"\n[red]{len(issues)} issue(s) found.[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"\n[green]All checks passed ({len(ok)} checks).[/green]")
+
+
+_HOOK_CONTENT = """\
+#!/bin/sh
+# soma post-commit hook — auto-regenerates CLAUDE.md
+soma context {project}
+"""
+
+hook_app = typer.Typer(help="Manage soma git hooks.")
+app.add_typer(hook_app, name="hook")
+
+
+@hook_app.command("install")
+def hook_install(
+    project: str = typer.Argument(..., help="Project to install hook for."),
+) -> None:
+    """Write a post-commit hook that regenerates context after every commit."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    hook_dir = Path(entry["root"]) / ".git" / "hooks"
+    if not hook_dir.exists():
+        console.print(f"[red]No .git/hooks directory in {escape(entry['root'])}[/red]")
+        raise typer.Exit(code=1)
+
+    hook_path = hook_dir / "post-commit"
+    if hook_path.exists():
+        existing = hook_path.read_text(encoding="utf-8")
+        if "soma context" not in existing:
+            console.print(
+                f"[yellow]Existing post-commit hook not from soma.[/yellow] "
+                f"Edit {escape(str(hook_path))} manually to add: soma context {escape(project)}"
+            )
+            raise typer.Exit(code=1)
+
+    hook_path.write_text(_HOOK_CONTENT.format(project=project), encoding="utf-8", newline="\n")
+    try:
+        hook_path.chmod(0o755)
+    except OSError:
+        pass  # Windows — chmod no-op, git will still run it
+    console.print(
+        f"[green]Hook installed[/green] → {escape(str(hook_path))}\n"
+        f"  After every [bold]git commit[/bold] in [bold]{escape(project)}[/bold], "
+        f"CLAUDE.md regenerates automatically."
+    )
+
+
+@hook_app.command("remove")
+def hook_remove(
+    project: str = typer.Argument(..., help="Project to remove hook from."),
+) -> None:
+    """Remove the soma post-commit hook from a project."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    entry = registry.get(project)
+    if entry is None:
+        console.print(f"[red]Unknown project:[/red] {escape(project)}.")
+        raise typer.Exit(code=1)
+
+    hook_path = Path(entry["root"]) / ".git" / "hooks" / "post-commit"
+    if not hook_path.exists():
+        console.print(f"[dim]No post-commit hook at {escape(str(hook_path))}.[/dim]")
+        return
+
+    existing = hook_path.read_text(encoding="utf-8")
+    if "soma context" not in existing:
+        console.print(
+            f"[yellow]Hook at {escape(str(hook_path))} was not installed by soma — leaving it.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+
+    hook_path.unlink()
+    console.print(f"[green]Removed[/green] soma hook from [bold]{escape(project)}[/bold].")
+
+
+@app.command()
+def activity(
+    days: int = typer.Option(30, "--days", "-d", help="Number of days to include (default: 30)."),
+    show_all: bool = typer.Option(False, "--all", help="Include archived projects."),
+) -> None:
+    """ASCII activity heatmap — commit frequency across all projects."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if days < 1 or days > 365:
+        console.print("[red]--days must be between 1 and 365.[/red]")
+        raise typer.Exit(code=1)
+
+    visible = {
+        n: e for n, e in registry.items()
+        if show_all or not e.get("archived", False)
+    }
+    if not visible:
+        console.print("[dim]No projects to show.[/dim]")
+        raise typer.Exit(code=1)
+
+    with console.status(f"Fetching activity for {len(visible)} project(s)..."):
+        rows, date_range = build_activity_data(visible, days=days)
+
+    typer.echo(render_heatmap(rows, date_range))
+
+
+def _collect_mtimes(root: Path, max_depth: int = 3) -> dict[str, float]:
+    """Return {abs_path: mtime} for watched files under root (for debounce)."""
+    result: dict[str, float] = {}
+    _mtime_walk(str(root), root, 0, max_depth, result)
+    return result
+
+
+def _mtime_walk(
+    directory: str, root: Path, depth: int, max_depth: int, result: dict[str, float]
+) -> None:
+    if depth > max_depth:
+        return
+    try:
+        with os.scandir(directory) as it:
+            for e in it:
+                if e.name.startswith("."):
+                    continue
+                try:
+                    if e.is_dir(follow_symlinks=False):
+                        if not should_ignore(e.name):
+                            _mtime_walk(e.path, root, depth + 1, max_depth, result)
+                    elif is_watched(e.name):
+                        result[e.path] = e.stat(follow_symlinks=False).st_mtime
+                except (OSError, ValueError):
+                    continue
+    except OSError:
+        pass
+
+
+def _status_to_dict(s: ProjectStatus) -> dict:
+    return {
+        "name": s.name,
+        "branch": s.branch,
+        "last_active": s.last_active.isoformat() if s.last_active else None,
+        "commits_7d": s.commits_7d,
+        "files_changed_7d": s.files_changed_7d,
+        "recent_commits": [
+            {"message": c.message, "when": c.when.isoformat()} for c in s.recent_commits
+        ],
+        "warning": s.warning,
+    }
+
+
 def _print_deep_view(s: ProjectStatus) -> None:
     console.print(f"[bold]Project:[/bold]      {escape(s.name)}")
     console.print(f"[bold]Branch:[/bold]       {escape(s.branch)}")
@@ -838,6 +1239,111 @@ def _print_deep_view(s: ProjectStatus) -> None:
         console.print("[bold]Files changed (7d):[/bold] none")
     if s.warning:
         console.print(f"[yellow]{escape(s.warning)}[/yellow]")
+
+
+@app.command()
+def tui() -> None:
+    """Launch the interactive TUI dashboard (textual)."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    try:
+        from soma.tui import run_tui  # noqa: PLC0415
+    except ImportError:
+        console.print("[red]textual not installed.[/red] Run: pip install textual")
+        raise typer.Exit(code=1)
+    run_tui(registry)
+
+
+mcp_app = typer.Typer(help="Manage the SOMA MCP server for Claude Desktop / Cursor.")
+app.add_typer(mcp_app, name="mcp")
+
+_CLAUDE_DESKTOP_CONFIG = {
+    "Darwin": Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
+    "Windows": Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "Claude" / "claude_desktop_config.json",
+    "Linux": Path.home() / ".config" / "Claude" / "claude_desktop_config.json",
+}
+
+
+def _config_path() -> Path:
+    import platform
+    system = platform.system()
+    return _CLAUDE_DESKTOP_CONFIG.get(system, _CLAUDE_DESKTOP_CONFIG["Linux"])
+
+
+@mcp_app.command("start")
+def mcp_start() -> None:
+    """Start the SOMA MCP server (stdio transport — Claude Desktop spawns this)."""
+    try:
+        from soma.mcp import mcp as _mcp  # noqa: PLC0415
+    except ImportError:
+        console.print("[red]fastmcp not installed.[/red] Run: pip install fastmcp")
+        raise typer.Exit(code=1)
+    _mcp.run()
+
+
+@mcp_app.command("install")
+def mcp_install(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print config change without writing."),
+) -> None:
+    """Register soma MCP server in Claude Desktop config."""
+    import json as _json  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    soma_bin = shutil.which("soma") or sys.executable.replace("python", "soma")
+    server_entry = {
+        "command": soma_bin,
+        "args": ["mcp", "start"],
+    }
+
+    cfg_path = _config_path()
+    if dry_run:
+        console.print(f"[dim]Config path:[/dim] {escape(str(cfg_path))}")
+        console.print("[dim]Would add:[/dim]")
+        console.print(_json.dumps({"mcpServers": {"soma": server_entry}}, indent=2))
+        return
+
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    config: dict = {}
+    if cfg_path.exists():
+        try:
+            config = _json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            config = {}
+
+    config.setdefault("mcpServers", {})["soma"] = server_entry
+    cfg_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+    console.print(f"[green]Installed[/green] soma MCP server → {escape(str(cfg_path))}")
+    console.print("Restart Claude Desktop to activate.")
+
+
+@mcp_app.command("uninstall")
+def mcp_uninstall() -> None:
+    """Remove soma from Claude Desktop MCP config."""
+    import json as _json  # noqa: PLC0415
+
+    cfg_path = _config_path()
+    if not cfg_path.exists():
+        console.print("[dim]Claude Desktop config not found — nothing to remove.[/dim]")
+        return
+
+    try:
+        config = _json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        console.print("[red]Could not parse config file.[/red]")
+        raise typer.Exit(code=1)
+
+    servers = config.get("mcpServers", {})
+    if "soma" not in servers:
+        console.print("[dim]soma not found in MCP config.[/dim]")
+        return
+
+    del servers["soma"]
+    config["mcpServers"] = servers
+    cfg_path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
+    console.print(f"[green]Removed[/green] soma from {escape(str(cfg_path))}")
 
 
 if __name__ == "__main__":

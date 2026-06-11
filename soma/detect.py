@@ -112,9 +112,7 @@ def forget_project(name: str, path: Path = PROJECTS_FILE) -> bool:
     if name not in registry:
         return False
     del registry[name]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        tomli_w.dump({"projects": registry}, f)
+    _save_registry(registry, path)
     return True
 
 
@@ -124,10 +122,66 @@ def rename_project(old: str, new: str, path: Path = PROJECTS_FILE) -> bool:
     if old not in registry:
         return False
     registry[new] = registry.pop(old)
+    _save_registry(registry, path)
+    return True
+
+
+def add_tag(name: str, tag: str, path: Path = PROJECTS_FILE) -> bool:
+    """Add a tag to a project. Returns False if project not found."""
+    registry = load_registry(path)
+    if name not in registry:
+        return False
+    tags: list[str] = registry[name].get("tags", [])
+    if tag not in tags:
+        tags.append(tag)
+        registry[name]["tags"] = tags
+        _save_registry(registry, path)
+    return True
+
+
+def remove_tag(name: str, tag: str, path: Path = PROJECTS_FILE) -> bool:
+    """Remove a tag from a project. Returns False if project or tag not found."""
+    registry = load_registry(path)
+    if name not in registry:
+        return False
+    tags: list[str] = registry[name].get("tags", [])
+    if tag not in tags:
+        return False
+    registry[name]["tags"] = [t for t in tags if t != tag]
+    _save_registry(registry, path)
+    return True
+
+
+def get_tags(name: str, path: Path = PROJECTS_FILE) -> list[str]:
+    """Return tags for a project, empty list if none."""
+    registry = load_registry(path)
+    return registry.get(name, {}).get("tags", [])
+
+
+def projects_by_tag(tag: str, path: Path = PROJECTS_FILE) -> dict[str, dict]:
+    """Return registry subset whose tags list contains tag."""
+    return {n: e for n, e in load_registry(path).items() if tag in e.get("tags", [])}
+
+
+def set_archived(name: str, archived: bool, path: Path = PROJECTS_FILE) -> bool:
+    """Set archived flag on a project. Returns False if not found."""
+    registry = load_registry(path)
+    if name not in registry:
+        return False
+    registry[name]["archived"] = archived
+    _save_registry(registry, path)
+    return True
+
+
+def is_archived(name: str, path: Path = PROJECTS_FILE) -> bool:
+    registry = load_registry(path)
+    return bool(registry.get(name, {}).get("archived", False))
+
+
+def _save_registry(registry: dict[str, dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as f:
         tomli_w.dump({"projects": registry}, f)
-    return True
 
 
 def _unique_name(base_name: str, registry: dict[str, dict]) -> str:
