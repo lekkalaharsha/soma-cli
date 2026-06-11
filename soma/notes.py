@@ -31,7 +31,7 @@ def load_notes(project: str, path: Path = NOTES_FILE) -> list[Note]:
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
         return []
     raw = data.get(project, {}).get("notes", [])
     notes = [Note(**n) for n in raw if isinstance(n, dict)]
@@ -75,7 +75,7 @@ def _load_raw(path: Path) -> dict:
     try:
         with path.open("rb") as f:
             return tomllib.load(f)
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
 
 

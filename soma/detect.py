@@ -65,7 +65,7 @@ def load_registry(path: Path = PROJECTS_FILE) -> dict[str, dict]:
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
     return data.get("projects", {})
 

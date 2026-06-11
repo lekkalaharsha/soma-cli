@@ -32,7 +32,7 @@ def _copy_to_clipboard(text: str) -> bool:
             except FileNotFoundError:
                 subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode("utf-8"), check=True, capture_output=True)
         return True
-    except Exception:
+    except Exception:  # clipboard backends (clip/pbcopy/xclip/xsel) fail in different ways
         return False
 
 

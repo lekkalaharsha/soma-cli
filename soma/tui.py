@@ -219,7 +219,7 @@ class SomaTUI(App):
             return
         try:
             text = generate_context(self.current_project, Path(entry["root"]))
-        except Exception:
+        except Exception:  # never crash the UI on a bad repo; notify instead
             self.notify("Could not generate context.", severity="error", timeout=3)
             return
         from soma.cli import _copy_to_clipboard  # lazy — avoids circular import

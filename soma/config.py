@@ -45,7 +45,7 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, int]:
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
         return cfg
     for key, cast in VALID_KEYS.items():
         raw = data.get("soma", {}).get(key)
@@ -69,7 +69,7 @@ def set_config(key: str, value: int, path: Path = CONFIG_FILE) -> None:
         try:
             with path.open("rb") as f:
                 data = tomllib.load(f)
-        except Exception:
+        except (OSError, tomllib.TOMLDecodeError):
             data = {}
     data.setdefault("soma", {})[key] = value
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +84,7 @@ def reset_config(key: str, path: Path = CONFIG_FILE) -> bool:
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError):
         return False
     soma_section = data.get("soma", {})
     if key not in soma_section:

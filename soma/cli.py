@@ -326,7 +326,7 @@ def context(
                 dirty_since = None
                 try:
                     text = generate_context(project, root)
-                except Exception:
+                except Exception:  # git/OS/parse; retry on next poll cycle
                     time.sleep(_POLL_S)
                     continue
                 if text != last_text:
@@ -390,7 +390,7 @@ def validate(
             root = Path(entry["root"])
             try:
                 text = generate_context(name, root)
-            except Exception:
+            except Exception:  # git/OS/parse; skip repo and continue saving others
                 continue
             safe = re.sub(r"[^\w\-]", "_", name)
             (_BASELINES_DIR / f"{safe}.md").write_text(text, encoding="utf-8", newline="\n")
@@ -410,7 +410,7 @@ def validate(
             root = Path(entry["root"])
             try:
                 current = generate_context(name, root)
-            except Exception as exc:
+            except Exception as exc:  # git/OS/parse; report and skip
                 console.print(f"[red]{escape(name)}:[/red] error — {escape(str(exc))}")
                 continue
             baseline = baseline_path.read_text(encoding="utf-8")
@@ -449,7 +449,7 @@ def validate(
         root = Path(entry["root"])
         try:
             text = generate_context(name, root)
-        except Exception as exc:
+        except Exception as exc:  # git/OS/parse; record row error and continue
             table.add_row(escape(name), "—", "—", "—", f"[red]ERROR: {escape(str(exc))}[/red]")
             any_fail = True
             continue
@@ -830,7 +830,7 @@ def search(
         root = Path(entry["root"])
         try:
             text = generate_context(name, root)
-        except Exception:
+        except Exception:  # git/OS/parse; skip repo from search results
             continue
         hits = [line for line in text.splitlines() if pattern.search(line)]
         if not hits:
@@ -946,7 +946,7 @@ def diff(
     root = Path(entry["root"])
     try:
         current = generate_context(project, root)
-    except Exception as exc:
+    except Exception as exc:  # git/OS/parse; surface to user and exit
         console.print(f"[red]Error generating context:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1)
 
@@ -1218,7 +1218,7 @@ def mcp_install(
     if cfg_path.exists():
         try:
             config = _json.loads(cfg_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, _json.JSONDecodeError):
             config = {}
 
     config.setdefault("mcpServers", {})["soma"] = server_entry
@@ -1239,7 +1239,7 @@ def mcp_uninstall() -> None:
 
     try:
         config = _json.loads(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, _json.JSONDecodeError):
         console.print("[red]Could not parse config file.[/red]")
         raise typer.Exit(code=1)
 

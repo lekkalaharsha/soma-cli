@@ -76,7 +76,7 @@ def search_projects(keyword: str) -> str:
     for name, entry in registry.items():
         try:
             text = generate_context(name, Path(entry["root"]))
-        except Exception:
+        except Exception:  # git/OS/parse; skip repo rather than crash the MCP server
             continue
         hits = [line for line in text.splitlines() if pattern.search(line)]
         if hits:

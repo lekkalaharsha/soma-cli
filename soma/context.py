@@ -158,7 +158,7 @@ def _fetch_commit_stats(root: Path, n: int) -> list[tuple[int, int]]:
 
         repo = Repo(root)
         out = repo.git.log(f"--max-count={n}", "--pretty=format:COMMIT", "--shortstat")
-    except Exception:
+    except (GitCommandError, InvalidGitRepositoryError, OSError):
         return []
     stats: list[tuple[int, int]] = []
     ins, dels = 0, 0
@@ -399,7 +399,7 @@ def _project_description(root: Path) -> str:
             desc = data.get("project", {}).get("description", "")
             if desc:
                 return str(desc)[:README_DESC_MAX]
-        except Exception:
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
             pass
     return ""
 
