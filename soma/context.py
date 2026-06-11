@@ -8,6 +8,7 @@ branch, blockers, confidence and focus are never dropped.
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -22,9 +23,12 @@ MAX_FILES = 8
 MAX_COMMITS = 5
 MAX_BLOCKERS = 3
 STALE_DAYS = 7
+DORMANT_DAYS = 30  # threshold for "dormant" suggested focus
 FIX_STORM_WINDOW = timedelta(hours=24)
 FIX_STORM_THRESHOLD = 3  # flag when strictly more fix commits than this
 TODO_READ_CAP = 200_000  # bytes per file scanned for TODO/FIXME
+README_READ_CAP = 4_000   # bytes — first meaningful paragraph only
+README_DESC_MAX = 350     # chars of description to surface
 FILE_WALK_BUDGET_S = 0.3
 
 # v1 has no event writer; checked for forward compatibility, git is the source.
@@ -71,26 +75,28 @@ def generate_context(
     missing data — empty repos and non-git dirs produce valid output."""
     now = now or datetime.now(timezone.utc)
     status = get_status(name, root)
+    description = _project_description(root)
     files = _files_in_motion(root, status.files_changed_7d)
     if not files:
         files = _recent_files_by_mtime(root)
     blockers = _detect_blockers(status, root, files, now)
-    focus = _suggested_focus(status, files)
+    focus = _suggested_focus(status, files, now)
     confidence = _confidence(status)
 
     n_files, n_commits = MAX_FILES, MAX_COMMITS
-    text = _render(name, status, files, blockers, focus, confidence, now, n_files, n_commits)
+    text = _render(name, description, status, files, blockers, focus, confidence, now, n_files, n_commits)
     while estimate_tokens(text) > max_tokens and n_files > 0:
         n_files -= 1
-        text = _render(name, status, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, status, files, blockers, focus, confidence, now, n_files, n_commits)
     while estimate_tokens(text) > max_tokens and n_commits > 1:
         n_commits -= 1
-        text = _render(name, status, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, status, files, blockers, focus, confidence, now, n_files, n_commits)
     return redact(text)
 
 
 def _render(
     name: str,
+    description: str,
     status: ProjectStatus,
     files: list[tuple[str, datetime]],
     blockers: list[str],
@@ -128,6 +134,10 @@ def _render(
         f"**Branch:** {status.branch} | **Last active:** {humanize_delta(status.last_active, now)}",
         activity,
         f"**Confidence:** {confidence}",
+    ]
+    if description:
+        parts += ["", f"**What this is:** {description}"]
+    parts += [
         "",
         "## Recent work",
         *commit_lines,
@@ -249,11 +259,117 @@ def _confidence(status: ProjectStatus) -> str:
     return "low"
 
 
+def _project_description(root: Path) -> str:
+    """Extract a short functional description from README (first real paragraph)
+    or pyproject.toml. Strips markdown noise; prefers sentences over taglines."""
+    for readme in ("README.md", "README.rst", "README.txt", "readme.md"):
+        path = root / readme
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")[:README_READ_CAP]
+            except OSError:
+                continue
+            desc = _extract_readme_paragraph(text)
+            if desc:
+                return desc
+    pyproject = root / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            import tomllib  # type: ignore[import]
+        except ImportError:
+            try:
+                import tomli as tomllib  # type: ignore[import,no-redef]
+            except ImportError:
+                return ""
+        try:
+            with open(pyproject, "rb") as f:
+                data = tomllib.load(f)
+            desc = data.get("project", {}).get("description", "")
+            if desc:
+                return str(desc)[:README_DESC_MAX]
+        except Exception:
+            pass
+    return ""
+
+
+def _extract_readme_paragraph(text: str) -> str:
+    """Return the first real prose paragraph from README text.
+
+    Prefers paragraphs that read as functional descriptions (contain a verb-like
+    word: is/does/builds/provides/helps/lets/runs/generates/scans/manages).
+    Falls back to any paragraph with a complete sentence (contains a period/colon).
+    Finally falls back to first non-trivial line.
+    """
+    SKIP_PREFIXES = ("#", "!", "<", "`", "[", "|", "---", "===", "~~~")
+    VERB_WORDS = re.compile(
+        r"\b(is|are|does|builds|provides|helps|lets|runs|generates|scans|manages"
+        r"|creates|tracks|allows|enables|installs|parses|reads|writes|converts"
+        r"|a proof|a cli|a tool|a library|a framework)\b",
+        re.I,
+    )
+
+    def clean_line(line: str) -> str:
+        line = line.strip()
+        if line.startswith(">"):
+            line = line.lstrip("> ").strip()
+        # Strip markdown bold/italic (* and _)
+        line = re.sub(r"[*_]{1,3}(.+?)[*_]{1,3}", r"\1", line)
+        return line
+
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for raw in text.splitlines():
+        raw_stripped = raw.strip()
+        if not raw_stripped:
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            continue
+        if any(raw_stripped.startswith(p) for p in SKIP_PREFIXES):
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            continue
+        cleaned = clean_line(raw_stripped)
+        if len(cleaned) > 15:
+            current.append(cleaned)
+    if current:
+        paragraphs.append(" ".join(current))
+
+    def strip_md(s: str) -> str:
+        s = re.sub(r"[*_]{1,3}(.+?)[*_]{1,3}", r"\1", s)
+        s = re.sub(r"`(.+?)`", r"\1", s)
+        return s
+
+    # Prefer paragraphs with functional verb words
+    for para in paragraphs:
+        if VERB_WORDS.search(para) and len(para) > 30:
+            return strip_md(para)[:README_DESC_MAX]
+    # Fall back: any paragraph with a sentence-ending marker
+    for para in paragraphs:
+        if ("." in para or ":" in para) and len(para) > 30:
+            return strip_md(para)[:README_DESC_MAX]
+    # Last resort: first non-trivial paragraph
+    for para in paragraphs:
+        if len(para) > 20:
+            return strip_md(para)[:README_DESC_MAX]
+    return ""
+
+
 def _suggested_focus(
-    status: ProjectStatus, files: list[tuple[str, datetime]]
+    status: ProjectStatus,
+    files: list[tuple[str, datetime]],
+    now: datetime,
 ) -> str:
+    last_commit = status.recent_commits[0].when if status.recent_commits else None
+    dormant = last_commit is not None and (now - last_commit) > timedelta(days=DORMANT_DAYS)
     if status.recent_commits:
         message = status.recent_commits[0].message
+        if dormant:
+            return (
+                f'Dormant {int((now - last_commit).days)}d — '  # type: ignore[arg-type]
+                f'review goals then resume from: "{message}"'
+            )
         top = _top_dir(files)
         if top:
             return f'Continue recent work in `{top}/` — last commit: "{message}"'
