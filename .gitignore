@@ -1,6 +1,138 @@
+# ============================================================
+# SOMA — .gitignore
+# ============================================================
+
+# ------------------------------------------------------------
+# SOMA USER DATA — never in repo, ever
+# ------------------------------------------------------------
+~/.soma/
+.soma/
+events/
+*.jsonl
+projects.toml
+
+# ------------------------------------------------------------
+# CREDENTIALS — hard stop
+# ------------------------------------------------------------
+.env
+.env.*
+*.env
+secrets.toml
+config.local.toml
+**/*secret*
+**/*credential*
+**/*api_key*
+
+# ------------------------------------------------------------
+# PYTHON
+# ------------------------------------------------------------
 __pycache__/
-*.pyc
-.venv/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
 dist/
-.claude/build-log.txt
+build/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+*.whl
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+.venv*/
+
+# PyPI / pip
+pip-log.txt
+pip-delete-this-directory.txt
+*.lock
+!poetry.lock
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+htmlcov/
+
+# ------------------------------------------------------------
+# TESTING
+# ------------------------------------------------------------
 .pytest_cache/
+.tox/
+nosetests.xml
+test-results/
+junit*.xml
+
+# ------------------------------------------------------------
+# EDITORS / IDE
+# ------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# ------------------------------------------------------------
+# LOGS
+# ------------------------------------------------------------
+*.log
+logs/
+soma.log
+
+# ------------------------------------------------------------
+# OS
+# ------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------
+# BUILD ARTIFACTS
+# ------------------------------------------------------------
+*.o
+*.so
+*.dylib
+*.dll
+*.class
+node_modules/
+.node_modules/
+
+# ------------------------------------------------------------
+# DEMO / RELEASE
+# ------------------------------------------------------------
+*.gif
+demo/
+recordings/
+*.rec
+
+# ------------------------------------------------------------
+# TOML — allow pyproject, block user data
+# ------------------------------------------------------------
+!pyproject.toml
+!poetry.lock

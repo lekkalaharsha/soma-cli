@@ -242,7 +242,7 @@ def _todo_blockers(root: Path, files: list[tuple[str, datetime]]) -> list[str]:
                 text = f.read(TODO_READ_CAP)
         except OSError:
             continue
-        if "TODO" in text or "FIXME" in text:
+        if re.search(r"(?:^|[\s#/\*])(TODO|FIXME)\s*[:\(]", text, re.MULTILINE):
             out.append(
                 f"Possible blocker detected: TODO/FIXME in recently modified {rel}"
             )
