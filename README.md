@@ -55,6 +55,8 @@ soma context <project>   # generate context summary
 | `soma history --days 30 --markdown` | Export to markdown for standups/notes |
 | `soma context <project>` | Generate LLM-ready context summary |
 | `soma context <project> --watch` | Keep CLAUDE.md in the repo up-to-date on file changes |
+| `soma forget <project>` | Remove a project from the registry (does not delete files) |
+| `soma validate` | Health check: token budget, format, secrets across all projects |
 
 ---
 
