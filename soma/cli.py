@@ -1241,6 +1241,21 @@ def _print_deep_view(s: ProjectStatus) -> None:
         console.print(f"[yellow]{escape(s.warning)}[/yellow]")
 
 
+@app.command()
+def tui() -> None:
+    """Launch the interactive TUI dashboard (textual)."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    try:
+        from soma.tui import run_tui  # noqa: PLC0415
+    except ImportError:
+        console.print("[red]textual not installed.[/red] Run: pip install textual")
+        raise typer.Exit(code=1)
+    run_tui(registry)
+
+
 mcp_app = typer.Typer(help="Manage the SOMA MCP server for Claude Desktop / Cursor.")
 app.add_typer(mcp_app, name="mcp")
 
