@@ -14,6 +14,7 @@ from rich.table import Table
 
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, write_context_file
 from soma.detect import PROJECTS_FILE, find_git_roots, forget_project, load_registry, register_projects
+from soma.notes import add_note, clear_notes, load_notes
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
 
@@ -325,6 +326,47 @@ def validate(
     console.print(table)
     if any_fail:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def note(
+    project: str = typer.Argument(..., help="Project name."),
+    text: Optional[str] = typer.Argument(None, help="Note text to add."),
+    list_notes: bool = typer.Option(False, "--list", "-l", help="List existing notes."),
+    clear: bool = typer.Option(False, "--clear", help="Remove all notes for this project."),
+) -> None:
+    """Add a manual annotation to a project (surfaced in soma context)."""
+    registry = load_registry(PROJECTS_FILE)
+    if not registry:
+        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
+        raise typer.Exit(code=1)
+    if project not in registry:
+        console.print(
+            f"[red]Unknown project:[/red] {escape(project)}. "
+            "Run [bold]soma status[/bold] to list projects."
+        )
+        raise typer.Exit(code=1)
+
+    if clear:
+        count = clear_notes(project)
+        console.print(f"[green]Cleared[/green] {count} note(s) for [bold]{escape(project)}[/bold].")
+        return
+
+    if list_notes or text is None:
+        notes = load_notes(project)
+        if not notes:
+            console.print(f"No notes for [bold]{escape(project)}[/bold].")
+            return
+        console.print(f"[bold]Notes for {escape(project)}:[/bold]")
+        for n in notes:
+            console.print(f"  [{n.when[:10]}] {escape(n.text)}")
+        return
+
+    n = add_note(project, text)
+    console.print(
+        f"[green]Note added[/green] to [bold]{escape(project)}[/bold]: {escape(n.text)}"
+    )
+    console.print("[dim]Will appear in soma context output.[/dim]")
 
 
 @app.command()

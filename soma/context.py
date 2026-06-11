@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from soma.filters import is_watched, should_ignore
+from soma.notes import MAX_NOTES, load_notes
 from soma.sanitize import redact
 from soma.status import CommitInfo, ProjectStatus, get_status, humanize_delta
 
@@ -76,6 +77,7 @@ def generate_context(
     now = now or datetime.now(timezone.utc)
     status = get_status(name, root)
     description = _project_description(root)
+    notes = load_notes(name)
     commit_stats = _fetch_commit_stats(root, MAX_COMMITS)
     files = _files_in_motion(root, status.files_changed_7d)
     if not files:
@@ -85,13 +87,13 @@ def generate_context(
     confidence = _confidence(status)
 
     n_files, n_commits = MAX_FILES, MAX_COMMITS
-    text = _render(name, description, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
+    text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     while estimate_tokens(text) > max_tokens and n_files > 0:
         n_files -= 1
-        text = _render(name, description, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     while estimate_tokens(text) > max_tokens and n_commits > 1:
         n_commits -= 1
-        text = _render(name, description, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
+        text = _render(name, description, notes, status, commit_stats, files, blockers, focus, confidence, now, n_files, n_commits)
     return redact(text)
 
 
@@ -134,6 +136,7 @@ def _fmt_commit(c: CommitInfo, stats: tuple[int, int] | None, now: datetime) -> 
 def _render(
     name: str,
     description: str,
+    notes: list,
     status: ProjectStatus,
     commit_stats: list[tuple[int, int]],
     files: list[tuple[str, datetime]],
@@ -175,6 +178,11 @@ def _render(
     ]
     if description:
         parts += ["", f"**What this is:** {description}"]
+    if notes:
+        parts += ["", "## Notes"]
+        for n in notes[:MAX_NOTES]:
+            when = humanize_delta(datetime.fromisoformat(n.when), now)
+            parts.append(f"- {n.text} ({when})")
     parts += [
         "",
         "## Recent work",
