@@ -93,8 +93,7 @@ class TestProtocolEmptyRegistry:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
 
     def test_list_projects_empty(self, tmp_path, monkeypatch) -> None:
         self._patch(tmp_path, monkeypatch)
@@ -130,8 +129,7 @@ class TestProtocolCallTools:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -177,8 +175,7 @@ class TestProtocolCallTools:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: unicorn", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -197,8 +194,7 @@ class TestProtocolCallTools:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: UPPERCASE", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -228,8 +224,7 @@ class TestProtocolRedaction:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", f"feat: update api_key={SECRET}", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -258,8 +253,7 @@ class TestProtocolRedaction:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         sk = "sk-" + "x" * 36
         make_repo(alpha, [("a.py", f"feat: set key {sk}", NOW - timedelta(hours=1))])

@@ -117,8 +117,7 @@ class TestMcpRedaction:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         root = _repo_with_secret(tmp_path)
         write_registry(reg, {"leaky": root})
         from soma.mcp import get_context
@@ -128,8 +127,7 @@ class TestMcpRedaction:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         root = _repo_with_secret(tmp_path)
         write_registry(reg, {"leaky": root})
         from soma.mcp import search_projects

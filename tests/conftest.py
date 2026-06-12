@@ -82,8 +82,6 @@ def write_registry(registry_path: Path, projects: dict[str, Path]) -> None:
 
 @pytest.fixture()
 def registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    import soma.cli
-
     path = tmp_path / "soma-config" / "projects.toml"
-    monkeypatch.setattr(soma.cli, "PROJECTS_FILE", path)
+    monkeypatch.setenv("SOMA_PROJECTS_FILE", str(path))
     return path

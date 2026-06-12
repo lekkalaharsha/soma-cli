@@ -19,8 +19,9 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, Label, Static
 
 from soma.context import generate_context
-from soma.detect import PROJECTS_FILE, load_registry
+from soma.detect import load_registry
 from soma.notes import add_note, load_notes
+from soma.runtime import registry_path
 from soma.sanitize import redact
 from soma.status import ProjectStatus, collect_statuses, humanize_delta
 
@@ -110,9 +111,10 @@ class SomaTUI(App):
     def __init__(
         self,
         registry: dict[str, dict] | None = None,
-        projects_file: Path = PROJECTS_FILE,
+        projects_file: Path | None = None,
     ) -> None:
         super().__init__()
+        projects_file = projects_file or registry_path()
         self._projects_file = projects_file
         self._projects = registry if registry is not None else load_registry(projects_file)
         self._statuses: list[ProjectStatus] = []

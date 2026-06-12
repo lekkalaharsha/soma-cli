@@ -112,8 +112,7 @@ class TestTagCLI:
     def test_tag_list(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.detect as det
         import soma.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         write_registry(registry, {"alpha": tmp_path / "alpha"})
         add_tag("alpha", "python", registry)
         result = runner.invoke(app, ["tag", "alpha", "--list"])
@@ -123,8 +122,7 @@ class TestTagCLI:
     def test_tag_remove(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.detect as det
         import soma.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         write_registry(registry, {"alpha": tmp_path / "alpha"})
         add_tag("alpha", "work", registry)
         result = runner.invoke(app, ["tag", "alpha", "--remove", "work"])
@@ -161,7 +159,7 @@ class TestArchiveCLI:
 
     def test_briefing_hides_archived(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         beta = tmp_path / "beta"
@@ -169,7 +167,7 @@ class TestArchiveCLI:
         write_registry(registry, {"alpha": alpha, "beta": beta})
         # archive beta
         import soma.detect as det
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         set_archived("beta", True, registry)
         result = runner.invoke(app, ["briefing"])
         assert result.exit_code == 0, result.output
@@ -179,8 +177,7 @@ class TestArchiveCLI:
     def test_briefing_all_shows_archived(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.cli as cli_mod
         import soma.detect as det
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(registry, {"alpha": alpha})
@@ -194,8 +191,7 @@ class TestGroupContext:
     def test_group_context(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.cli as cli_mod
         import soma.detect as det
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         alpha = tmp_path / "alpha"
         beta = tmp_path / "beta"
         make_repo(alpha, [("a.py", "feat: alpha work", NOW - timedelta(hours=1))])

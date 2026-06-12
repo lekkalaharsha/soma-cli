@@ -194,8 +194,7 @@ class TestActivityCLI:
     def test_activity_hides_archived(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.cli as cli_mod
         import soma.detect as det
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         active = tmp_path / "active"
         archived = tmp_path / "archived"
         make_repo(active, [("a.py", "feat: a", NOW - timedelta(hours=1))])

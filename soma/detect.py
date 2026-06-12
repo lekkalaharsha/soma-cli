@@ -14,10 +14,10 @@ import tomli_w
 from pydantic import BaseModel
 
 from soma.filters import should_ignore
+from soma.runtime import DEFAULT_REGISTRY_PATH, SOMA_DIR, registry_path
 
 DEFAULT_MAX_DEPTH = 4
-SOMA_DIR = Path.home() / ".soma"
-PROJECTS_FILE = SOMA_DIR / "projects.toml"
+PROJECTS_FILE = DEFAULT_REGISTRY_PATH
 
 
 class Project(BaseModel):
@@ -58,8 +58,13 @@ def _scan(directory: Path, depth: int, max_depth: int, roots: list[Path]) -> Non
         _scan(Path(entry.path), depth + 1, max_depth, roots)
 
 
-def load_registry(path: Path = PROJECTS_FILE) -> dict[str, dict]:
+def _registry_path(path: Path | None = None) -> Path:
+    return path or registry_path()
+
+
+def load_registry(path: Path | None = None) -> dict[str, dict]:
     """Load the [projects] table; empty dict if the file doesn't exist yet."""
+    path = _registry_path(path)
     if not path.exists():
         return {}
     try:
@@ -71,13 +76,14 @@ def load_registry(path: Path = PROJECTS_FILE) -> dict[str, dict]:
 
 
 def register_projects(
-    roots: list[Path], path: Path = PROJECTS_FILE
+    roots: list[Path], path: Path | None = None
 ) -> tuple[list[Project], list[Project]]:
     """Merge found roots into the registry. Returns (new, already_known).
 
     Existing entries are never wiped or overwritten; identity is the root
     path, and name collisions between different roots get a -N suffix.
     """
+    path = _registry_path(path)
     registry = load_registry(path)
     roots_to_name = {entry["root"]: name for name, entry in registry.items()}
 
@@ -106,8 +112,9 @@ def register_projects(
     return new, known
 
 
-def forget_project(name: str, path: Path = PROJECTS_FILE) -> bool:
+def forget_project(name: str, path: Path | None = None) -> bool:
     """Remove a named project from the registry. Returns True if found and removed."""
+    path = _registry_path(path)
     registry = load_registry(path)
     if name not in registry:
         return False
@@ -116,8 +123,9 @@ def forget_project(name: str, path: Path = PROJECTS_FILE) -> bool:
     return True
 
 
-def rename_project(old: str, new: str, path: Path = PROJECTS_FILE) -> bool:
+def rename_project(old: str, new: str, path: Path | None = None) -> bool:
     """Rename a project in the registry. Returns True on success, False if old not found."""
+    path = _registry_path(path)
     registry = load_registry(path)
     if old not in registry:
         return False
@@ -126,8 +134,9 @@ def rename_project(old: str, new: str, path: Path = PROJECTS_FILE) -> bool:
     return True
 
 
-def add_tag(name: str, tag: str, path: Path = PROJECTS_FILE) -> bool:
+def add_tag(name: str, tag: str, path: Path | None = None) -> bool:
     """Add a tag to a project. Returns False if project not found."""
+    path = _registry_path(path)
     registry = load_registry(path)
     if name not in registry:
         return False
@@ -139,8 +148,9 @@ def add_tag(name: str, tag: str, path: Path = PROJECTS_FILE) -> bool:
     return True
 
 
-def remove_tag(name: str, tag: str, path: Path = PROJECTS_FILE) -> bool:
+def remove_tag(name: str, tag: str, path: Path | None = None) -> bool:
     """Remove a tag from a project. Returns False if project or tag not found."""
+    path = _registry_path(path)
     registry = load_registry(path)
     if name not in registry:
         return False
@@ -152,19 +162,20 @@ def remove_tag(name: str, tag: str, path: Path = PROJECTS_FILE) -> bool:
     return True
 
 
-def get_tags(name: str, path: Path = PROJECTS_FILE) -> list[str]:
+def get_tags(name: str, path: Path | None = None) -> list[str]:
     """Return tags for a project, empty list if none."""
     registry = load_registry(path)
     return registry.get(name, {}).get("tags", [])
 
 
-def projects_by_tag(tag: str, path: Path = PROJECTS_FILE) -> dict[str, dict]:
+def projects_by_tag(tag: str, path: Path | None = None) -> dict[str, dict]:
     """Return registry subset whose tags list contains tag."""
     return {n: e for n, e in load_registry(path).items() if tag in e.get("tags", [])}
 
 
-def set_archived(name: str, archived: bool, path: Path = PROJECTS_FILE) -> bool:
+def set_archived(name: str, archived: bool, path: Path | None = None) -> bool:
     """Set archived flag on a project. Returns False if not found."""
+    path = _registry_path(path)
     registry = load_registry(path)
     if name not in registry:
         return False
@@ -173,7 +184,7 @@ def set_archived(name: str, archived: bool, path: Path = PROJECTS_FILE) -> bool:
     return True
 
 
-def is_archived(name: str, path: Path = PROJECTS_FILE) -> bool:
+def is_archived(name: str, path: Path | None = None) -> bool:
     registry = load_registry(path)
     return bool(registry.get(name, {}).get("archived", False))
 

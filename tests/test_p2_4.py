@@ -90,8 +90,7 @@ class TestContextFormatJson:
     def test_group_json_returns_list(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.detect as det
         import soma.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
-        monkeypatch.setattr(det, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         alpha = tmp_path / "alpha"
         beta = tmp_path / "beta"
         make_repo(alpha, [("a.py", "feat: alpha", NOW - timedelta(hours=1))])
@@ -121,7 +120,7 @@ class TestDiff:
 
     def test_diff_no_baseline_fails(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         baselines = tmp_path / "baselines"
         monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines)
         alpha = tmp_path / "alpha"
@@ -134,7 +133,7 @@ class TestDiff:
 
     def test_diff_no_change(self, registry: Path, tmp_path: Path, monkeypatch) -> None:
         import soma.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "PROJECTS_FILE", registry)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(registry))
         baselines = tmp_path / "baselines"
         monkeypatch.setattr(cli_mod, "_BASELINES_DIR", baselines)
         alpha = tmp_path / "alpha"
@@ -158,7 +157,7 @@ class TestDiff:
 # ---------------------------------------------------------------------------
 class TestDoctor:
     def test_doctor_empty_registry(self, registry: Path, tmp_path: Path) -> None:
-        # registry fixture patches PROJECTS_FILE but file doesn't exist yet
+        # registry fixture points at a temp registry that does not exist yet
         result = runner.invoke(app, ["doctor"])
         # no registered projects → ok (just warns)
         assert "Traceback" not in result.output

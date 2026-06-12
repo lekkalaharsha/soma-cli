@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from soma.config import DEFAULTS, VALID_KEYS, _BOUNDS, load_config, reset_config, set_config
 from soma.context import TOKEN_CEILING, UnsafeTargetError, estimate_tokens, generate_context, generate_context_dict, write_context_file
 from soma.detect import (
-    PROJECTS_FILE, add_tag, find_git_roots, forget_project, get_tags,
+    add_tag, find_git_roots, forget_project, get_tags,
     is_archived, load_registry, projects_by_tag, register_projects,
     remove_tag, rename_project, set_archived,
 )
@@ -34,6 +34,7 @@ from soma.cli_helpers import (
 )
 from soma.filters import is_watched, should_ignore
 from soma.notes import add_note, clear_notes, load_notes, rename_notes
+from soma.runtime import registry_path
 from soma.sanitize import redact
 from soma.history import collect_history, render_markdown
 from soma.status import ProjectStatus, collect_statuses, get_status_safe, humanize_delta
@@ -81,7 +82,7 @@ def main(
         raise typer.Exit()
     if ctx.invoked_subcommand is not None:
         return
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("[bold]SOMA[/bold] — no projects registered yet.")
         console.print("  Run [bold cyan]soma init[/bold cyan] to scan your home directory.")
@@ -133,7 +134,7 @@ def init(
     for project in known:
         table.add_row(project.name, project.root, "[dim]already registered[/dim]")
     console.print(table)
-    console.print(f"Registry: {PROJECTS_FILE}")
+    console.print(f"Registry: {registry_path()}")
 
 
 @app.command()
@@ -146,7 +147,7 @@ def status(
     """Show activity status for all projects, or a deep view of one."""
     import json as _json
 
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -202,7 +203,7 @@ def history(
     ),
 ) -> None:
     """Show a timestamped activity log per day per project."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -245,7 +246,7 @@ def context(
         console.print(f"[red]Unknown format:[/red] {escape(fmt)}. Use 'text' or 'json'.")
         raise typer.Exit(code=1)
 
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -260,7 +261,7 @@ def context(
 
     # --group: print context for every project with that tag
     if group:
-        targets = projects_by_tag(group, PROJECTS_FILE)
+        targets = projects_by_tag(group, registry_path())
         if not targets:
             console.print(f"[red]No projects tagged:[/red] {escape(group)}.")
             raise typer.Exit(code=1)
@@ -366,7 +367,7 @@ def validate(
     ),
 ) -> None:
     """Check context quality; optionally save or diff against a baseline."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -495,7 +496,7 @@ def note(
     clear: bool = typer.Option(False, "--clear", help="Remove all notes for this project."),
 ) -> None:
     """Add a manual annotation to a project (surfaced in soma context)."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -534,7 +535,7 @@ def briefing(
     show_all: bool = typer.Option(False, "--all", help="Include archived projects."),
 ) -> None:
     """Morning summary: active, quiet, and dormant projects with pending notes."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -619,7 +620,7 @@ def export(
     ),
 ) -> None:
     """Export context summaries to markdown files."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -657,7 +658,7 @@ def rename(
     new: str = typer.Argument(..., help="New project name."),
 ) -> None:
     """Rename a project in the SOMA registry."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -673,7 +674,7 @@ def rename(
             "Choose a different name."
         )
         raise typer.Exit(code=1)
-    rename_project(old, new, PROJECTS_FILE)
+    rename_project(old, new, registry_path())
     rename_notes(old, new)
     console.print(f"[green]Renamed[/green] [bold]{escape(old)}[/bold] → [bold]{escape(new)}[/bold].")
 
@@ -683,7 +684,7 @@ def forget(
     project: str = typer.Argument(..., help="Project name to remove from registry."),
 ) -> None:
     """Remove a project from the SOMA registry (does not delete files)."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -693,7 +694,7 @@ def forget(
             "Run [bold]soma status[/bold] to list projects."
         )
         raise typer.Exit(code=1)
-    forget_project(project, PROJECTS_FILE)
+    forget_project(project, registry_path())
     console.print(f"[green]Removed[/green] [bold]{escape(project)}[/bold] from registry.")
     console.print("[dim]Files on disk untouched. Re-run soma init to re-register.[/dim]")
 
@@ -806,7 +807,7 @@ def search(
     ),
 ) -> None:
     """Search a keyword across all project context summaries."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -859,7 +860,7 @@ def tag(
     list_tags: bool = typer.Option(False, "--list", "-l", help="List current tags."),
 ) -> None:
     """Add, remove, or list tags on a project."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -868,21 +869,21 @@ def tag(
         raise typer.Exit(code=1)
 
     if remove:
-        if not remove_tag(project, remove, PROJECTS_FILE):
+        if not remove_tag(project, remove, registry_path()):
             console.print(f"[yellow]Tag '{escape(remove)}' not on {escape(project)}.[/yellow]")
         else:
             console.print(f"[green]Removed[/green] tag [bold]{escape(remove)}[/bold] from {escape(project)}.")
         return
 
     if list_tags or tag_name is None:
-        tags = get_tags(project, PROJECTS_FILE)
+        tags = get_tags(project, registry_path())
         if tags:
             console.print(f"[bold]{escape(project)}[/bold] tags: " + ", ".join(f"[cyan]{escape(t)}[/cyan]" for t in tags))
         else:
             console.print(f"[dim]{escape(project)} has no tags.[/dim]")
         return
 
-    add_tag(project, tag_name, PROJECTS_FILE)
+    add_tag(project, tag_name, registry_path())
     console.print(f"[green]Tagged[/green] [bold]{escape(project)}[/bold] → [cyan]{escape(tag_name)}[/cyan].")
 
 
@@ -891,14 +892,14 @@ def archive(
     project: str = typer.Argument(..., help="Project to archive."),
 ) -> None:
     """Archive a project — hidden from soma briefing unless --all."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
     if project not in registry:
         console.print(f"[red]Unknown project:[/red] {escape(project)}.")
         raise typer.Exit(code=1)
-    set_archived(project, True, PROJECTS_FILE)
+    set_archived(project, True, registry_path())
     console.print(f"[dim]Archived[/dim] [bold]{escape(project)}[/bold]. Hidden from briefing (use [dim]soma briefing --all[/dim] to show).")
 
 
@@ -907,14 +908,14 @@ def unarchive(
     project: str = typer.Argument(..., help="Project to restore."),
 ) -> None:
     """Restore an archived project to active tier."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
     if project not in registry:
         console.print(f"[red]Unknown project:[/red] {escape(project)}.")
         raise typer.Exit(code=1)
-    set_archived(project, False, PROJECTS_FILE)
+    set_archived(project, False, registry_path())
     console.print(f"[green]Restored[/green] [bold]{escape(project)}[/bold] to active tier.")
 
 
@@ -925,7 +926,7 @@ def diff(
     """Show what changed in a project's context since the last saved baseline."""
     import difflib as _dl
 
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -994,7 +995,7 @@ def doctor() -> None:
             issues.append(f"config {key}={val} out of bounds [{lo}, {hi}]")
 
     # registry integrity
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         ok.append("registry empty (run soma init to populate)")
     else:
@@ -1042,7 +1043,7 @@ def hook_install(
     project: str = typer.Argument(..., help="Project to install hook for."),
 ) -> None:
     """Write a post-commit hook that regenerates context after every commit."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -1083,7 +1084,7 @@ def hook_remove(
     project: str = typer.Argument(..., help="Project to remove hook from."),
 ) -> None:
     """Remove the soma post-commit hook from a project."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -1114,7 +1115,7 @@ def activity(
     show_all: bool = typer.Option(False, "--all", help="Include archived projects."),
 ) -> None:
     """ASCII activity heatmap — commit frequency across all projects."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)
@@ -1165,7 +1166,7 @@ def _print_deep_view(s: ProjectStatus) -> None:
 @app.command()
 def tui() -> None:
     """Launch the interactive TUI dashboard (textual)."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
         raise typer.Exit(code=1)

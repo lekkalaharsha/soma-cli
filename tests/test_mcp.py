@@ -24,8 +24,7 @@ class TestListProjects:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -37,8 +36,7 @@ class TestListProjects:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         result = list_projects()
         assert "No projects" in result
 
@@ -46,8 +44,7 @@ class TestListProjects:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -64,8 +61,7 @@ class TestGetContext:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -77,8 +73,7 @@ class TestGetContext:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -91,8 +86,7 @@ class TestGetContext:
         import soma.mcp as mcp_mod
         from soma.context import estimate_tokens
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -103,8 +97,7 @@ class TestGetContext:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -121,8 +114,7 @@ class TestSearchProjects:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: unicorn", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -134,8 +126,7 @@ class TestSearchProjects:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -146,8 +137,7 @@ class TestSearchProjects:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: UPPER", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -163,8 +153,7 @@ class TestGetBriefing:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
@@ -176,8 +165,7 @@ class TestGetBriefing:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         result = get_briefing()
         assert "No projects" in result
 
@@ -185,8 +173,7 @@ class TestGetBriefing:
         import soma.detect as det
         import soma.mcp as mcp_mod
         reg = tmp_path / "projects.toml"
-        monkeypatch.setattr(det, "PROJECTS_FILE", reg)
-        monkeypatch.setattr(mcp_mod, "PROJECTS_FILE", reg)
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})

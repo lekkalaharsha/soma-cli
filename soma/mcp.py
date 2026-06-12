@@ -12,8 +12,9 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from soma.context import generate_context
-from soma.detect import PROJECTS_FILE, load_registry
+from soma.detect import load_registry
 from soma.notes import load_notes
+from soma.runtime import registry_path
 from soma.status import collect_statuses, get_status_safe, humanize_delta
 
 mcp = FastMCP(
@@ -29,7 +30,7 @@ mcp = FastMCP(
 @mcp.tool()
 def list_projects() -> str:
     """List all registered projects with their branch and last-active time."""
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         return "No projects registered. Run `soma init` first."
     statuses = collect_statuses(registry)
@@ -49,7 +50,7 @@ def get_context(project: str) -> str:
     This is the primary tool. Call it before answering questions about
     what a project is, what was recently worked on, or what to do next.
     """
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         return "No projects registered. Run `soma init` first."
     entry = registry.get(project)
@@ -67,7 +68,7 @@ def search_projects(keyword: str) -> str:
     """
     import re  # noqa: PLC0415
 
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         return "No projects registered."
 
@@ -97,7 +98,7 @@ def get_briefing() -> str:
     """
     from datetime import datetime, timezone  # noqa: PLC0415
 
-    registry = load_registry(PROJECTS_FILE)
+    registry = load_registry(registry_path())
     if not registry:
         return "No projects registered. Run `soma init` first."
 
