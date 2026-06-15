@@ -1,5 +1,5 @@
 # ============================================================
-# SOMA — .gitignore
+# SOMA CLI — .gitignore
 # ============================================================
 
 # ------------------------------------------------------------
@@ -45,17 +45,14 @@ MANIFEST
 
 # Virtual environments
 .venv/
+.venv*/
 venv/
 env/
 ENV/
-.env/
-.venv*/
 
 # PyPI / pip
 pip-log.txt
 pip-delete-this-directory.txt
-*.lock
-!poetry.lock
 
 # Type checking
 .mypy_cache/
@@ -88,17 +85,8 @@ junit*.xml
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 *.sublime-project
 *.sublime-workspace
-
-# ------------------------------------------------------------
-# LOGS
-# ------------------------------------------------------------
-*.log
-logs/
-soma.log
 
 # ------------------------------------------------------------
 # OS
@@ -113,6 +101,41 @@ Thumbs.db
 desktop.ini
 
 # ------------------------------------------------------------
+# LOGS & TEMP
+# ------------------------------------------------------------
+*.log
+logs/
+soma.log
+soma_realworld_test*.log
+"!LOG_FILE!"
+\!LOG_FILE!
+*.tmp
+docs/file.tmp
+
+# ------------------------------------------------------------
+# SCRATCH / SESSION NOISE
+# ------------------------------------------------------------
+documentation.md
+suggest.md
+codex_section.md
+context_gate.md
+PHASEV2.CSV
+
+# ------------------------------------------------------------
+# AI AGENT TOOL DIRS (not part of SOMA source)
+# ------------------------------------------------------------
+.agents/
+.claude/
+.codex/
+
+# ------------------------------------------------------------
+# DOCS — DRAFTS / RUNTIME (internal, not for contributors)
+# ------------------------------------------------------------
+docs/HANDOFF_RUNTIME_REGISTRY.md
+docs/NEXT_PHASE_IDEA.md
+docs/SOMA_SCOPE_v2.md
+
+# ------------------------------------------------------------
 # BUILD ARTIFACTS
 # ------------------------------------------------------------
 *.o
@@ -121,7 +144,6 @@ desktop.ini
 *.dll
 *.class
 node_modules/
-.node_modules/
 
 # ------------------------------------------------------------
 # VS CODE EXTENSION BUILD
@@ -130,15 +152,15 @@ vscode-soma/out/
 vscode-soma/*.vsix
 
 # ------------------------------------------------------------
-# DEMO / RELEASE
+# DEMO / RELEASE RECORDINGS
 # ------------------------------------------------------------
-*.gif
 demo/
 recordings/
 *.rec
+*.cast
 
 # ------------------------------------------------------------
-# TOML — allow pyproject, block user data
+# EXPLICIT ALLOWS (override blanket rules above)
 # ------------------------------------------------------------
 !pyproject.toml
 !poetry.lock
