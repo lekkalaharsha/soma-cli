@@ -402,8 +402,8 @@ def _confidence(status: ProjectStatus) -> str:
 
 
 def _project_description(root: Path) -> str:
-    """Extract a short functional description from pyproject.toml, package.json, or README.md.
-    Strips markdown noise; prefers sentences over taglines."""
+    """Extract a short functional description from configuration files (pyproject.toml, Cargo.toml,
+    package.json, setup.cfg) or README.md. Strips markdown noise; prefers sentences over taglines."""
     # 1. Try pyproject.toml first
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
@@ -419,12 +419,34 @@ def _project_description(root: Path) -> str:
                 with open(pyproject, "rb") as f:
                     data = tomllib.load(f)
                 desc = data.get("project", {}).get("description", "")
+                if not desc:
+                    desc = data.get("tool", {}).get("poetry", {}).get("description", "")
                 if desc:
                     return str(desc)[:README_DESC_MAX]
             except (OSError, tomllib.TOMLDecodeError):
                 pass
 
-    # 2. Try package.json next
+    # 2. Try Cargo.toml next
+    cargo_toml = root / "Cargo.toml"
+    if cargo_toml.exists():
+        try:
+            import tomllib  # type: ignore[import]
+        except ImportError:
+            try:
+                import tomli as tomllib  # type: ignore[import,no-redef]
+            except ImportError:
+                tomllib = None
+        if tomllib is not None:
+            try:
+                with open(cargo_toml, "rb") as f:
+                    data = tomllib.load(f)
+                desc = data.get("package", {}).get("description", "")
+                if desc:
+                    return str(desc)[:README_DESC_MAX]
+            except (OSError, tomllib.TOMLDecodeError):
+                pass
+
+    # 3. Try package.json next
     package_json = root / "package.json"
     if package_json.exists():
         try:
@@ -437,7 +459,20 @@ def _project_description(root: Path) -> str:
         except Exception:
             pass
 
-    # 3. Fall back to README files
+    # 4. Try setup.cfg next
+    setup_cfg = root / "setup.cfg"
+    if setup_cfg.exists():
+        try:
+            import configparser
+            config = configparser.ConfigParser()
+            config.read(setup_cfg, encoding="utf-8")
+            desc = config.get("metadata", "description", fallback="")
+            if desc:
+                return str(desc)[:README_DESC_MAX]
+        except Exception:
+            pass
+
+    # 5. Fall back to README files
     for readme in ("README.md", "README.rst", "README.txt", "readme.md"):
         path = root / readme
         if path.exists():

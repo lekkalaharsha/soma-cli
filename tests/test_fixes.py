@@ -155,3 +155,36 @@ def test_context_out_option(tmp_path: Path, registry: Path) -> None:
     
     # Confirm that no CLAUDE.md was generated inside the repository folder itself
     assert not (proj_dir / "CLAUDE.md").exists()
+
+def test_poetry_description_extracted(tmp_path: Path) -> None:
+    root = tmp_path / "poetry_proj"
+    root.mkdir()
+    
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text("[tool.poetry]\ndescription = 'This is a poetry project description.'\n", encoding="utf-8")
+    
+    from soma.context import _project_description
+    desc = _project_description(root)
+    assert desc == "This is a poetry project description."
+
+def test_cargo_description_extracted(tmp_path: Path) -> None:
+    root = tmp_path / "cargo_proj"
+    root.mkdir()
+    
+    cargo = root / "Cargo.toml"
+    cargo.write_text("[package]\ndescription = 'This is a cargo project description.'\n", encoding="utf-8")
+    
+    from soma.context import _project_description
+    desc = _project_description(root)
+    assert desc == "This is a cargo project description."
+
+def test_setup_cfg_description_extracted(tmp_path: Path) -> None:
+    root = tmp_path / "setup_proj"
+    root.mkdir()
+    
+    setup = root / "setup.cfg"
+    setup.write_text("[metadata]\ndescription = This is a setup.cfg project description.\n", encoding="utf-8")
+    
+    from soma.context import _project_description
+    desc = _project_description(root)
+    assert desc == "This is a setup.cfg project description."
