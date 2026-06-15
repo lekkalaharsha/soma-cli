@@ -1,18 +1,77 @@
-# soma-cli
+# SOMA — System Omniscient Memory Agent (v1)
 
-**soma is a CLI tool that scans git repos on-demand and generates compact LLM context summaries** — so you never re-explain your project to an AI assistant.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/aranrobotics-prog/soma-cli/actions)
 
+> **"Your repositories already remember everything. Now they can tell your AI."**
+
+SOMA is an on-demand, local-first CLI utility and Model Context Protocol (MCP) server that scans git repositories and active file modifications to generate high-density, structured markdown context summaries. 
+
+Simply feed SOMA's output into any LLM session (Claude, ChatGPT, Gemini, Copilot) to orient your coding assistant instantly without copy-pasting codebases or wasting token limits.
+
+---
+
+## ⚡ Key Features
+
+*   **Zero-Knowledge Orientation**: Automatically extracts functional descriptions from standard project files (`pyproject.toml`, `Cargo.toml`, `package.json`, `setup.cfg`, or `README.md`), removing badge/link noise.
+*   **Active Context Modeling**: Captures recent commits, active branch names, and uncommitted edits sorted by modification recency.
+*   **Stale TODO Exclusions**: Analyzes recently modified files containing `TODO` or `FIXME` comments using `git blame`. Ignores legacy comments committed >30 days ago, flagging only active/new blockers.
+*   **Model Context Protocol (MCP)**: Exposes workspace metadata as tools, enabling Claude Desktop, Cursor, or other MCP clients to query repository contexts natively.
+*   **Privacy & Security Guaranteed**: 100% offline, zero network telemetry, no background daemons, and automatic sanitization of credentials/API keys.
+*   **Custom Watch Outputs**: Supports `--watch` with `--out` parameters to continuously compile summaries into a global cache, preventing local repository pollution.
+
+---
+
+## 📥 Installation
+
+Install core SOMA or pull in optional integration modules:
+
+```bash
+pip install soma-cli            # Core CLI (no heavy dependencies)
+pip install 'soma-cli[mcp]'     # Adds FastMCP server support
+pip install 'soma-cli[tui]'     # Adds Textual Terminal UI Dashboard
+pip install 'soma-cli[all]'     # Full installation (TUI + MCP)
 ```
-soma context myproject
+
+Verify the installation:
+```bash
+soma --version
 ```
-```
-# myproject — Context Summary (generated 2026-06-11 by SOMA)
+
+---
+
+## 🚀 Quick Start
+
+1.  **Initialize Registry**: Scan your directories (up to depth 4) to detect git repositories and write them to `~/.soma/projects.toml`:
+    ```bash
+    soma init
+    ```
+2.  **View Status Dashboard**: Inspect recent branch activity, commit counts, and file changes across all registered projects:
+    ```bash
+    soma status
+    ```
+3.  **Generate LLM Context**: Produce a dense, structured summary for your coding assistant:
+    ```bash
+    soma context my-project
+    ```
+4.  **Copy Directly to Clipboard**:
+    ```bash
+    soma context my-project --copy
+    ```
+
+---
+
+## 📋 Context Format Output Example
+
+```markdown
+# my-project — Context Summary (generated 2026-06-15 by SOMA)
 
 **Branch:** main | **Last active:** 2h ago
 **Activity (7d):** 8 commits, 15 files changed
 **Confidence:** high
 
-**What this is:** A CLI tool that scans git repos and generates LLM context summaries.
+**What this is:** A local-first CLI tool that scans git repos and generates LLM context summaries.
 
 ## Recent work
 - feat: add watch mode (+18/-2) (2h ago)
@@ -29,163 +88,75 @@ soma context myproject
 Continue recent work in `src/` — last commit: "feat: add watch mode"
 ```
 
-Paste this into any LLM session. Your AI already knows the project.
+---
+
+## 🛠️ CLI Commands & Sub-typers
+
+### Core Workflow Commands
+
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `init` | `soma init [--base <path>]` | Scans workspace for git repositories and registers them (never overwrites). |
+| `status` | `soma status [project]` | Displays activity dashboard. If project specified, opens deep detailed view. |
+| `history` | `soma history [--days N] [--markdown]` | Outputs a timestamped activity event log per day per project. |
+| `context` | `soma context <project>` | Generates the high-density markdown context summary. |
+| `validate` | `soma validate [project]` | Runs verification checks (token budget, sections, secrets check). |
+
+### Project & Config Management
+
+| Command | Usage | Description |
+| :--- | :--- | :--- |
+| `note` | `soma note <project> "<text>"` | Attaches manual annotations that are surfaced in context outputs. |
+| `rename` | `soma rename <old> <new>` | Renames registered project and safely migrates its notes. |
+| `forget` | `soma forget <project>` | Removes project from registry without deleting local files. |
+| `tag` | `soma tag <project> <tag>` | Attaches search/group tags to projects (`--list` and `--remove` supported). |
+| `archive` | `soma archive <project>` | Marks project as dormant, hiding it from daily briefings. |
+| `config` | `soma config set <key> <value>` | Manages parameters (`dormant_days`, `token_ceiling`, `scan_timeout`, etc.). |
 
 ---
 
-## Install
+## 🔌 Integrations
+
+### 1. Model Context Protocol (MCP)
+Let your AI query your local repositories natively. Register SOMA as an MCP server with Claude Desktop:
 
 ```bash
-pip install soma-cli            # core CLI (no heavy deps)
-pip install 'soma-cli[mcp]'     # + MCP server for Claude Desktop / Cursor
-pip install 'soma-cli[tui]'     # + textual TUI dashboard
-pip install 'soma-cli[all]'     # everything
-
-soma init        # scan ~/ for git repos, register them
-soma status      # see all projects sorted by last activity
-soma context <project>   # generate context summary
+soma mcp install
 ```
+*Restart Claude Desktop, and your AI can directly list projects and read contexts using exposed tools (`list_projects`, `get_context`, `search_projects`, `get_briefing`).*
 
-The core install stays lean — `fastmcp` and `textual` are optional extras,
-pulled in only if you use `soma mcp` or `soma tui`.
-
----
-
-## Commands
-
-### Core
-
-| Command | What it does |
-|---------|-------------|
-| `soma init` | Scan home directory for git repos, write `~/.soma/projects.toml` |
-| `soma status` | All-projects table sorted by recency (branch, commits, files) |
-| `soma status <project>` | Deep view: recent commits, files changed, warnings |
-| `soma status --json` | Machine-readable status for scripting |
-| `soma history` | Timestamped activity log, last 7 days |
-| `soma history --days 30 --markdown` | Export to markdown for standups/notes |
-| `soma context <project>` | Generate LLM-ready context summary (with diff stats per commit) |
-| `soma context <project> --watch` | Keep CLAUDE.md in the repo up-to-date (3s debounce) |
-| `soma context <project> --format json` | Structured output for tool integration |
-| `soma context <project> --since 7d` | Limit activity window (`YYYY-MM-DD`, `7d`, `2w`, `yesterday`) |
-| `soma context <project> --copy` | Copy summary straight to clipboard |
-| `soma briefing` | Morning roll-up: active / quiet / dormant projects + pending notes |
-| `soma forget <project>` | Remove a project from the registry (does not delete files) |
-| `soma rename <old> <new>` | Rename a project (migrates its notes) |
-| `soma note <project> "text"` | Attach a manual note surfaced in context output |
-| `soma validate` | Health check: token budget, format, secrets across all projects |
-| `soma --version` / `--update` / `--uninstall` | Version, pip upgrade, interactive uninstall |
-
-### Organisation
-
-| Command | What it does |
-|---------|-------------|
-| `soma tag <project> <tag>` | Tag a project (`--remove` / `--list` too) |
-| `soma context --group <tag>` | Combine every tagged project into one context block |
-| `soma briefing --group <tag>` | Filter the briefing to one tag |
-| `soma archive <project>` | Hide a dormant project from briefing (`soma briefing --all` to show) |
-| `soma unarchive <project>` | Restore an archived project |
-| `soma export [project]` | Dump context summaries to `<name>_context.md` files |
-| `soma search <keyword>` | Grep across all project context summaries |
-| `soma config set <key> <value>` | Tune `token_ceiling`, `max_files`, `dormant_days`, `max_commits` |
-
-### Power tools
-
-| Command | What it does |
-|---------|-------------|
-| `soma activity [--days N]` | ASCII commit heatmap across all projects |
-| `soma diff <project>` | What changed since the last saved baseline |
-| `soma validate --save-baseline` / `--compare` | Snapshot context, then diff future runs against it |
-| `soma doctor` | Diagnose registry, stale roots, config bounds, git availability |
-| `soma hook install <project>` | post-commit hook that auto-rewrites CLAUDE.md (`hook remove` too) |
-| `soma tui` | Interactive terminal dashboard (textual) |
-| `soma mcp start` / `install` | MCP server for Claude Desktop / Cursor (`uninstall` too) |
-
----
-
-## Integrations
-
-### MCP — let your AI query repos directly
-
-soma ships an MCP (Model Context Protocol) server. Claude Desktop or Cursor call
-soma's tools directly — no copy-paste:
-
-```bash
-soma mcp install     # writes mcpServers.soma into claude_desktop_config.json
-# restart Claude Desktop, then ask: "what are my soma projects?"
-```
-
-Tools exposed: `list_projects`, `get_context`, `search_projects`, `get_briefing`.
-Still no LLM calls or network on soma's side — the server reads git, the client is the LLM.
-
-### TUI dashboard
-
+### 2. Interactive TUI Dashboard
+Launch a rich terminal-based dashboard built on `textual`:
 ```bash
 soma tui
 ```
+*Use `↑↓` keys to navigate projects, `n` to append a note, `c` to copy context, and `r` to refresh the dashboard.*
 
-Left panel: projects (↑↓ to navigate). Right: live context summary + notes.
-Keys — `r` refresh · `n` add note · `c` copy context · `q` quit.
+### 3. Git post-commit Hook Automation
+Automatically regenerate your agent documentation files (e.g. `CLAUDE.md`) on every commit:
+```bash
+soma hook install my-project
+```
 
-### VS Code extension
-
-`vscode-soma/` — sidebar briefing panel with click-to-copy context, auto-refresh on
-file save, and a `SOMA: Copy Context` command. Build with `cd vscode-soma && npm install && npm run compile`.
-
----
-
-## What soma does NOT do
-
-- **No daemon.** Scanning is on-demand only. Nothing runs in the background.
-- **No LLM calls.** Output is pure heuristics + templates — no AI, no API key, no cost.
-- **No database.** State lives in `~/.soma/projects.toml` (TOML, plain text).
-- **No network.** Fully offline. Your code never leaves your machine.
-- **No shell capture.** soma never runs your code or reads environment variables.
-- **No secrets.** Output is redacted for `api_key=`, `token=`, `sk-*` patterns.
+### 4. VS Code Sidebar Extension
+Compile and package the sidebar webview panel inside `vscode-soma/`:
+```bash
+cd vscode-soma
+npm install
+npm run compile
+```
 
 ---
 
-## How it works
+## 🛡️ SOMA Guarantees (What it does NOT do)
 
-soma reads two sources:
-
-1. **`git log`** — commits, branches, changed files, diff stats (via gitpython)
-2. **File mtimes** — catches uncommitted edits git doesn't see
-
-No event logging, no process watching. The filesystem is the daemon.
+*   **No Resident Daemons**: Runs strictly on-demand. Zero background resource utilization.
+*   **No External API Keys**: Fully heuristic templates. No LLM calls are made on SOMA's side.
+*   **No Network Activity**: Strictly local-first. Your code never leaves your workstation.
+*   **Credential Sanitizer**: Automatically redacts API keys, bearer tokens, or `sk-` credentials from commits and focus suggestions.
 
 ---
 
-## Context format
+## 📄 License
 
-Every `soma context` output follows a fixed schema an LLM can parse reliably:
-
-- **Branch + last active + activity** — orientation line
-- **What this is** — extracted from README or pyproject.toml description
-- **Recent work** — last 5 commits with `(+insertions/-deletions)` diff stats
-- **Files in motion** — up to 8 files sorted by recency (omits files untouched >30d)
-- **Possible blockers** — stale branch, TODO/FIXME in active files, fix storms
-- **Suggested focus** — derived from most recent activity cluster
-
-Target: 350–600 tokens. Active repos typically land at 340–400.
-
----
-
-## Configuration
-
-Projects registry: `~/.soma/projects.toml` — auto-written by `soma init`.
-
-soma never writes inside your repos except `CLAUDE.md` when `--watch` is explicitly used.
-It will refuse to overwrite a `CLAUDE.md` it didn't generate (your hand-written agent contract is safe).
-
----
-
-## Requirements
-
-- Python 3.12+
-- git
-
----
-
-## License
-
-MIT
+SOMA is open-source software licensed under the [MIT License](LICENSE).
