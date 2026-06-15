@@ -90,9 +90,9 @@ def status(
         return
 
     table = Table(title=f"SOMA — {len(statuses)} project(s)")
-    table.add_column("Project", style="bold")
+    table.add_column("Project", style="bold", no_wrap=True, max_width=28)
     table.add_column("Last Active")
-    table.add_column("Branch")
+    table.add_column("Branch", no_wrap=True, max_width=22)
     table.add_column("Commits")
     table.add_column("Files (7d)")
     for s in statuses:

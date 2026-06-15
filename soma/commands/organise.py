@@ -250,6 +250,8 @@ def config_set(
     except ValueError:
         console.print(f"[red]Value must be an integer, got:[/red] {escape(value)}")
         raise typer.Exit(code=1)
+    from soma.cli import load_config as _load_cfg  # noqa: PLC0415
+    prev_val = _load_cfg()[key]  # read current persisted value BEFORE overwriting
     try:
         set_config(key, int_val)
     except ValueError as exc:
@@ -257,7 +259,7 @@ def config_set(
         raise typer.Exit(code=1)
     console.print(
         f"[green]Set[/green] [bold]{escape(key)}[/bold] = {int_val} "
-        f"[dim](was {DEFAULTS[key]})[/dim]"
+        f"[dim](was {prev_val})[/dim]"
     )
 
 

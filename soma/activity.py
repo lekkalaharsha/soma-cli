@@ -62,7 +62,9 @@ def build_activity_data(
         return name, fetch_daily_commits(Path(entry["root"]), days, today)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
-        results = list(pool.map(_fetch, registry.items()))
+        # Skip entries whose root path no longer exists — doctor already flags them.
+        live_items = [(n, e) for n, e in registry.items() if Path(e["root"]).exists()]
+        results = list(pool.map(_fetch, live_items))
 
     results.sort(key=lambda r: (-sum(r[1].values()), r[0]))
     return results, date_range

@@ -591,8 +591,12 @@ def _suggested_focus(
                 f'review goals then resume from: "{message}"'
             )
         top = _top_dir(files)
+        # Append the top 2 recently-changed files for active projects so the
+        # focus line carries enough context to push past the 350-token floor.
+        hot_files = ", ".join(f"`{rel}`" for rel, _ in files[:2]) if files else ""
         if top:
-            return f'Continue recent work in `{top}/` — last commit: "{message}"'
+            base = f'Continue recent work in `{top}/` — last commit: "{message}"'
+            return f"{base}. Hot files: {hot_files}" if hot_files else base
         return f'Continue from last commit: "{message}"'
     if files:
         return f"Resume editing {files[0][0]} (most recently touched file)"

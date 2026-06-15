@@ -115,6 +115,7 @@ def collect_statuses(registry: dict[str, dict]) -> list[ProjectStatus]:
     futures = [
         (name, entry, pool.submit(job, name, Path(entry["root"])))
         for name, entry in registry.items()
+        if Path(entry["root"]).exists()  # skip stale roots (doctor flags these)
     ]
     deadline = time.monotonic() + timeout * max(8.0, float(len(futures)))
     statuses: list[ProjectStatus] = []
