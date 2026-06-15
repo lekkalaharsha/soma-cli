@@ -38,6 +38,7 @@ def context(
     since: Optional[str] = typer.Option(None, "--since", help="Limit activity to this date window (YYYY-MM-DD, 7d, 2w, 3h, yesterday)."),
     group: Optional[str] = typer.Option(None, "--group", "-g", help="Generate context for all projects with this tag."),
     fmt: str = typer.Option("text", "--format", "-f", help="Output format: text or json."),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Custom output filepath (useful with --watch to avoid repo pollution)."),
 ) -> None:
     """Generate a compact LLM-ready context summary for a project or tag group."""
     import json as _json
@@ -68,13 +69,23 @@ def context(
             raise typer.Exit(code=1)
         if fmt == "json":
             results = [generate_context_dict(name, Path(entry["root"]), since=since_dt) for name, entry in targets.items()]
-            typer.echo(_json.dumps(results, indent=2))
+            combined_json = _json.dumps(results, indent=2)
+            if out:
+                target_path = Path(out).resolve()
+                write_context_file(Path(list(targets.values())[0]["root"]), combined_json, target_path=target_path)
+                console.print(f"[green]Written[/green] group context to [bold]{escape(str(target_path))}[/bold]")
+            else:
+                typer.echo(combined_json)
             return
         parts: list[str] = []
         for name, entry in targets.items():
             parts.append(generate_context(name, Path(entry["root"]), since=since_dt))
         combined = "\n\n---\n\n".join(parts)
-        if copy:
+        if out:
+            target_path = Path(out).resolve()
+            write_context_file(Path(list(targets.values())[0]["root"]), combined, target_path=target_path)
+            console.print(f"[green]Written[/green] group context to [bold]{escape(str(target_path))}[/bold]")
+        elif copy:
             if _copy_to_clipboard(combined):
                 console.print(f"[green]Copied[/green] {len(targets)} context(s) for group [cyan]{escape(group)}[/cyan].")
             else:
@@ -96,22 +107,28 @@ def context(
     if not watch:
         if fmt == "json":
             data = generate_context_dict(project, root, since=since_dt)
-            typer.echo(_json.dumps(data, indent=2))
-            return
-        text = generate_context(project, root, since=since_dt)
-        if copy:
-            if _copy_to_clipboard(text):
+            output_content = _json.dumps(data, indent=2)
+        else:
+            output_content = generate_context(project, root, since=since_dt)
+
+        if out:
+            target_path = Path(out).resolve()
+            write_context_file(root, output_content, target_path=target_path)
+            console.print(f"[green]Written[/green] context to [bold]{escape(str(target_path))}[/bold]")
+        elif copy:
+            if _copy_to_clipboard(output_content):
                 console.print(f"[green]Copied[/green] context for [bold]{escape(project)}[/bold] to clipboard.")
             else:
                 console.print("[yellow]Clipboard unavailable.[/yellow] Printing instead:")
-                typer.echo(text)
+                typer.echo(output_content)
         else:
-            typer.echo(text)
+            typer.echo(output_content)
         return
 
+    target_path = Path(out).resolve() if out else (root / "CLAUDE.md")
     console.print(
         f"Watching [bold]{escape(project)}[/bold] — regenerating "
-        f"{escape(str(root / 'CLAUDE.md'))} on change (3s quiet window). Ctrl+C to stop."
+        f"{escape(str(target_path))} on change (3s quiet window). Ctrl+C to stop."
     )
     last_text: Optional[str] = None
     prev_mtimes: dict[str, float] = {}
@@ -132,7 +149,7 @@ def context(
                     time.sleep(_POLL_S)
                     continue
                 if text != last_text:
-                    target = write_context_file(root, text)
+                    target = write_context_file(root, text, target_path=target_path)
                     console.print(f"[green]updated[/green] {escape(str(target))}")
                     last_text = text
             time.sleep(_POLL_S)
