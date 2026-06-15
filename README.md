@@ -157,6 +157,126 @@ npm run compile
 
 ---
 
-## 📄 License
+## 📄 License — MIT
 
-SOMA is open-source software licensed under the [MIT License](LICENSE).
+```
+MIT License
+
+Copyright (c) 2026 SOMA CLI Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+You are free to use, fork, modify, and distribute SOMA in personal or commercial projects.
+The full license text is also available in the [`LICENSE`](LICENSE) file in the root of the repository.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome — bug reports, performance improvements, heuristic refinements, and MCP client integrations. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full guide.
+
+### Quick Contribution Checklist
+
+Before opening a Pull Request, make sure:
+
+- [ ] `pytest` passes with zero failures (`341+` tests in the suite)
+- [ ] New behaviour has accompanying tests in `tests/`
+- [ ] Commit follows **Conventional Commits** format (see below)
+- [ ] No API keys, tokens, or secrets appear anywhere in the diff
+- [ ] Module size stays under 300 lines — split if needed
+- [ ] Any new context output field is routed through `soma.sanitize.redact()`
+
+### What We Welcome
+
+| Area | Examples |
+|------|---------|
+| **Performance** | Faster git log parsing, smarter file-walk budgets |
+| **Heuristics** | Better README description extraction, smarter blocker detection |
+| **Language support** | Cargo.toml, `package.json`, `go.mod`, CMakeLists parsing |
+| **MCP** | New tools, Cursor/Windsurf client support |
+| **CLI UX** | Better error messages, shell completions |
+| **Tests** | Edge cases, fixture repos, platform-specific paths |
+
+### What We Will Not Accept (v1 Hard Boundaries)
+
+| Request | Why |
+|---------|-----|
+| Network calls / cloud sync | SOMA is strictly local-first — no exceptions |
+| Background daemons | On-demand scanning only |
+| Databases | Filesystem + TOML is sufficient |
+| LLM calls inside SOMA | Pure heuristics — no API keys, no cost |
+| Completion percentages | Use recency + blocker counts instead |
+
+### Commit Format
+
+```
+type(scope): subject
+```
+
+**Types:** `feat` · `fix` · `docs` · `test` · `refactor` · `chore`
+
+**Scopes:** `cli` · `config` · `context` · `detect` · `filters` · `mcp` · `status` · `tests`
+
+**Rules:**
+- Imperative mood, lowercase start, no ending punctuation, max 72 chars
+- Tests ship in the **same commit** as the feature — never separate
+- Never: `wip`, `fixes`, `update`, `changes`
+- Never add `Co-Authored-By` trailers
+
+**Examples:**
+```bash
+feat(context): add hot-files list to suggested focus line
+fix(status): skip stale registry roots before parallel scan
+test(filters): add node_modules nested path edge case
+docs(cli): update mcp install instructions for Cursor
+```
+
+### Setting Up Locally
+
+```bash
+git clone https://github.com/aranrobotics-prog/soma-cli
+cd soma-cli
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS / Linux
+pip install -e ".[all]"
+pytest                           # must be green before you start
+```
+
+### Reporting Bugs
+
+Open an issue on [GitHub Issues](https://github.com/aranrobotics-prog/soma-cli/issues) with:
+- Your OS and Python version (`python --version`)
+- The exact command you ran
+- The full error output (or a sanitised version with no credentials)
+- What you expected to happen
+
+### Security Disclosures
+
+If you discover a credential-leakage or path-traversal vulnerability, **do not open a public issue**. Email the maintainer directly. We treat zero-credential output as a hard project gate — any bypass is a critical bug.
+
+---
+
+<p align="center">
+  Built with ❤️ for developers who talk to AI every day.<br>
+  <a href="https://github.com/aranrobotics-prog/soma-cli">GitHub</a> ·
+  <a href="https://pypi.org/project/soma-cli/">PyPI</a> ·
+  <a href="LICENSE">MIT License</a>
+</p>
