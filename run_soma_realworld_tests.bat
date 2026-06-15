@@ -77,7 +77,7 @@ set "CMD=python -m soma.cli config set scan_timeout 5"
 call :RunTest
 
 :: 3. Doctor Integrity Checks
-:: doctor exits 1 when it finds real issues (stale roots etc.) — that's CORRECT behavior.
+:: doctor exits 1 when it finds real issues (stale roots etc.) ? that's CORRECT behavior.
 :: We count exit 0 (clean) as PASS and exit 1 (issues found) as INFO (not FAIL).
 echo Testing: System Doctor Checks
 set "CMD=python -m soma.cli doctor"

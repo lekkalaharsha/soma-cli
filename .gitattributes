@@ -1,0 +1,17 @@
+# Ensure batch files always use CRLF — cmd.exe requires it
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Python and other text files: normalize to LF
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+
+# Binaries
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.whl binary
