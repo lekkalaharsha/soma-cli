@@ -169,7 +169,7 @@ set "CMD=python -m soma.cli validate soma-v1-setup"
 call :RunTest
 
 set "DESC=Search context keyword"
-set CMD=python -m soma.cli search "LICENSE" -p soma-v1-setup
+set CMD=python -m soma.cli search "Branch" -p soma-v1-setup
 call :RunTest
 
 set "DESC=ASCII Activity Heatmap"
