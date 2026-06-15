@@ -20,6 +20,7 @@ VALID_KEYS: dict[str, type] = {
     "token_ceiling": int,
     "max_files": int,
     "max_commits": int,
+    "scan_timeout": int,
 }
 
 DEFAULTS: dict[str, int] = {
@@ -27,6 +28,7 @@ DEFAULTS: dict[str, int] = {
     "token_ceiling": 600,
     "max_files": 8,
     "max_commits": 5,
+    "scan_timeout": 2,
 }
 
 _BOUNDS: dict[str, tuple[int, int]] = {
@@ -34,11 +36,14 @@ _BOUNDS: dict[str, tuple[int, int]] = {
     "token_ceiling": (200, 2000),
     "max_files": (1, 20),
     "max_commits": (1, 20),
+    "scan_timeout": (1, 60),
 }
 
 
-def load_config(path: Path = CONFIG_FILE) -> dict[str, int]:
+def load_config(path: Path | None = None) -> dict[str, int]:
     """Return merged config: file values override defaults."""
+    if path is None:
+        path = CONFIG_FILE
     cfg = dict(DEFAULTS)
     if not path.exists():
         return cfg
@@ -55,10 +60,12 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, int]:
             except (TypeError, ValueError):
                 pass
     return cfg
-
-
-def set_config(key: str, value: int, path: Path = CONFIG_FILE) -> None:
+ 
+ 
+def set_config(key: str, value: int, path: Path | None = None) -> None:
     """Persist a single config key. Raises ValueError for unknown keys or out-of-range values."""
+    if path is None:
+        path = CONFIG_FILE
     if key not in VALID_KEYS:
         raise ValueError(f"Unknown key '{key}'. Valid: {', '.join(VALID_KEYS)}")
     lo, hi = _BOUNDS[key]
@@ -75,10 +82,12 @@ def set_config(key: str, value: int, path: Path = CONFIG_FILE) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as f:
         tomli_w.dump(data, f)
-
-
-def reset_config(key: str, path: Path = CONFIG_FILE) -> bool:
+ 
+ 
+def reset_config(key: str, path: Path | None = None) -> bool:
     """Remove a key from config (reverts to default). Returns True if key was present."""
+    if path is None:
+        path = CONFIG_FILE
     if not path.exists():
         return False
     try:

@@ -76,16 +76,19 @@ def get_status(name: str, root: Path, since: datetime | None = None) -> ProjectS
 
 def get_status_safe(name: str, root: Path) -> ProjectStatus:
     """get_status with a hard per-repo timeout — skip with warning, never hang."""
+    from soma.config import load_config
+    cfg = load_config()
+    timeout = float(cfg.get("scan_timeout", 2))
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(get_status, name, root)
         try:
-            return future.result(timeout=REPO_TIMEOUT_S)
+            return future.result(timeout=timeout)
         except FutureTimeoutError:
             return ProjectStatus(
                 name=name,
                 root=str(root),
-                warning=f"skipped — scan exceeded {REPO_TIMEOUT_S:.0f}s",
+                warning=f"skipped — scan exceeded {timeout:.0f}s",
             )
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
@@ -99,6 +102,9 @@ def collect_statuses(registry: dict[str, dict]) -> list[ProjectStatus]:
     ones aren't unfairly skipped. A global deadline still guarantees the
     command can never hang.
     """
+    from soma.config import load_config
+    cfg = load_config()
+    timeout = float(cfg.get("scan_timeout", 2))
     pool = ThreadPoolExecutor(max_workers=8)
     started: dict[str, float] = {}
 
@@ -110,19 +116,19 @@ def collect_statuses(registry: dict[str, dict]) -> list[ProjectStatus]:
         (name, entry, pool.submit(job, name, Path(entry["root"])))
         for name, entry in registry.items()
     ]
-    deadline = time.monotonic() + REPO_TIMEOUT_S * max(8.0, float(len(futures)))
+    deadline = time.monotonic() + timeout * max(8.0, float(len(futures)))
     statuses: list[ProjectStatus] = []
     try:
         for name, entry, future in futures:
             try:
-                statuses.append(_await_result(future, name, started, deadline))
+                statuses.append(_await_result(future, name, started, deadline, timeout))
             except FutureTimeoutError:
                 future.cancel()
                 statuses.append(
                     ProjectStatus(
                         name=name,
                         root=str(entry["root"]),
-                        warning=f"skipped — scan exceeded {REPO_TIMEOUT_S:.0f}s",
+                        warning=f"skipped — scan exceeded {timeout:.0f}s",
                     )
                 )
     finally:
@@ -136,6 +142,7 @@ def _await_result(
     name: str,
     started: dict[str, float],
     deadline: float,
+    timeout: float,
 ) -> ProjectStatus:
     while True:
         try:
@@ -143,7 +150,7 @@ def _await_result(
         except FutureTimeoutError:
             now = time.monotonic()
             begun = started.get(name)
-            if begun is not None and now - begun > REPO_TIMEOUT_S:
+            if begun is not None and now - begun > timeout:
                 raise
             if now > deadline:
                 raise
