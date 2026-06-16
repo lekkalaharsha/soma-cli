@@ -1,14 +1,17 @@
-"""SOMA power user commands: activity, diff, doctor, tui."""
+"""SOMA power user commands: activity, diff, doctor, tui, drift, predict, verify, why, team."""
 from __future__ import annotations
 
 import re
 import shutil
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.table import Table
 
 from soma.runtime import registry_path
 from soma.detect import load_registry
@@ -17,6 +20,41 @@ from soma.context import generate_context
 from soma.config import load_config, _BOUNDS, DEFAULTS
 
 console = Console()
+
+# Path to track when each project context was last loaded
+_SESSIONS_FILE = Path.home() / ".soma" / "sessions.toml"
+
+
+def _load_sessions() -> dict:
+    try:
+        import tomllib  # noqa: PLC0415
+        return tomllib.loads(_SESSIONS_FILE.read_text(encoding="utf-8")) if _SESSIONS_FILE.exists() else {}
+    except Exception:
+        return {}
+
+
+def _save_session(project: str) -> None:
+    """Record that context was loaded for project right now."""
+    try:
+        import tomllib  # noqa: PLC0415
+        sessions = _load_sessions()
+        sessions[project] = datetime.now(timezone.utc).isoformat()
+        lines = [f'{k} = "{v}"' for k, v in sessions.items()]
+        _SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _SESSIONS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:
+        pass  # session tracking is best-effort, never crash for it
+
+
+def _last_seen(project: str) -> datetime | None:
+    sessions = _load_sessions()
+    raw = sessions.get(project)
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
 
 
 def activity(
@@ -129,39 +167,4 @@ def doctor() -> None:
         for name, entry in registry.items():
             root = Path(entry.get("root", ""))
             if not root.exists():
-                stale.append(name)
-            elif not (root / ".git").exists():
-                non_git.append(name)
-        ok.append(f"{len(registry)} projects registered")
-        if stale:
-            issues.append(f"stale roots (directory missing): {', '.join(stale)}")
-        else:
-            ok.append("all registered roots exist")
-        if non_git:
-            issues.append(f"non-git roots: {', '.join(non_git)}")
-        else:
-            ok.append("all roots are git repos")
-
-    for msg in ok:
-        console.print(f"  [green]✓[/green] {msg}")
-    for msg in issues:
-        console.print(f"  [red]✗[/red] {msg}")
-
-    if issues:
-        console.print(f"\n[red]{len(issues)} issue(s) found.[/red]")
-        raise typer.Exit(code=1)
-    console.print(f"\n[green]All checks passed ({len(ok)} checks).[/green]")
-
-
-def tui() -> None:
-    """Launch the interactive TUI dashboard (textual)."""
-    registry = load_registry(registry_path())
-    if not registry:
-        console.print("No projects registered yet. Run [bold]soma init[/bold] first.")
-        raise typer.Exit(code=1)
-    try:
-        from soma.tui import run_tui  # noqa: PLC0415
-    except ImportError:
-        console.print("[red]textual not installed.[/red] Run: pip install 'soma-cli[tui]'")
-        raise typer.Exit(code=1)
-    run_tui(registry)
+                stale.appe

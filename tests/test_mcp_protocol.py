@@ -49,13 +49,17 @@ def _text(result) -> str:
 # ---------------------------------------------------------------------------
 
 class TestProtocolListTools:
-    def test_four_tools_via_protocol(self) -> None:
+    def test_eight_tools_via_protocol(self) -> None:
         tools = _list_tools()
-        assert len(tools) == 4
+        assert len(tools) == 8
 
     def test_tool_names_via_protocol(self) -> None:
         names = {t.name for t in _list_tools()}
-        assert names == {"list_projects", "get_context", "search_projects", "get_briefing"}
+        assert names == {
+            "list_projects", "get_context", "search_projects",
+            "get_briefing", "get_history", "get_diff",
+            "get_drift", "get_predict",
+        }
 
     def test_get_context_schema_has_project(self) -> None:
         tool = next(t for t in _list_tools() if t.name == "get_context")
@@ -261,3 +265,310 @@ class TestProtocolRedaction:
         r = _call("get_context", {"project": "alpha"})
         assert sk not in _text(r)
         assert "[REDACTED]" in _text(r)
+
+
+# ---------------------------------------------------------------------------
+# JSON format — existing tools
+# ---------------------------------------------------------------------------
+
+class TestJsonFormat:
+    def _setup(self, tmp_path, monkeypatch):
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("a.py", "feat: init", NOW - timedelta(hours=1))])
+        write_registry(reg, {"alpha": alpha})
+
+    def test_list_projects_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("list_projects", {"format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert "projects" in data
+        assert isinstance(data["projects"], list)
+
+    def test_list_projects_json_has_fields(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("list_projects", {"format": "json"})
+        proj = json.loads(_text(r))["projects"][0]
+        assert "name" in proj
+        assert "branch" in proj
+        assert "last_active" in proj
+        assert "commits_7d" in proj
+
+    def test_get_briefing_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_briefing", {"format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert "active" in data
+        assert "quiet" in data
+        assert "dormant" in data
+        assert "generated" in data
+
+    def test_get_context_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_context", {"project": "alpha", "format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert data["project"] == "alpha"
+        assert "branch" in data
+        assert "summary" in data
+        assert "commits_7d" in data
+
+    def test_format_text_default_unchanged(self, tmp_path, monkeypatch) -> None:
+        """Default text format still returns human-readable string."""
+        self._setup(tmp_path, monkeypatch)
+        r = _call("list_projects")
+        assert "Project" in _text(r)
+        assert "Branch" in _text(r)
+
+
+# ---------------------------------------------------------------------------
+# get_history
+# ---------------------------------------------------------------------------
+
+class TestGetHistory:
+    def _setup(self, tmp_path, monkeypatch):
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [
+            ("a.py", "feat: first commit", NOW - timedelta(hours=2)),
+            ("b.py", "fix: second commit", NOW - timedelta(hours=1)),
+        ])
+        write_registry(reg, {"alpha": alpha})
+
+    def test_get_history_returns_commits(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_history")
+        assert not r.is_error
+        txt = _text(r)
+        assert "feat: first commit" in txt or "fix: second commit" in txt
+
+    def test_get_history_filter_by_project(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_history", {"project": "alpha"})
+        assert not r.is_error
+        assert "alpha" in _text(r)
+
+    def test_get_history_unknown_project_no_error(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_history", {"project": "ghost"})
+        assert not r.is_error
+        assert "No commits" in _text(r)
+
+    def test_get_history_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_history", {"format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert "days" in data
+        assert "total_commits" in data
+        assert isinstance(data["days"], list)
+
+    def test_get_history_json_commit_fields(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_history", {"project": "alpha", "format": "json"})
+        data = json.loads(_text(r))
+        assert data["total_commits"] >= 1
+        commit = data["days"][0]["commits"][0]
+        assert "time" in commit
+        assert "project" in commit
+        assert "message" in commit
+
+    def test_get_history_days_param(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_history", {"days": 1})
+        assert not r.is_error
+
+    def test_get_history_empty_registry(self, tmp_path, monkeypatch) -> None:
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        r = _call("get_history")
+        assert not r.is_error
+        assert "No projects" in _text(r)
+
+
+# ---------------------------------------------------------------------------
+# get_diff
+# ---------------------------------------------------------------------------
+
+class TestGetDiff:
+    def _setup(self, tmp_path, monkeypatch):
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [
+            ("alpha.py", "feat: add file", NOW - timedelta(hours=1)),
+        ])
+        write_registry(reg, {"alpha": alpha})
+
+    def test_get_diff_returns_files(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_diff", {"project": "alpha"})
+        assert not r.is_error
+        txt = _text(r)
+        assert "alpha" in txt
+
+    def test_get_diff_unknown_project_no_error(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_diff", {"project": "ghost"})
+        assert not r.is_error
+        assert "Unknown project" in _text(r)
+
+    def test_get_diff_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_diff", {"project": "alpha", "format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert "project" in data
+        assert "files" in data
+        assert "days" in data
+
+    def test_get_diff_json_file_fields(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_diff", {"project": "alpha", "format": "json"})
+        data = json.loads(_text(r))
+        if data["files"]:
+            f = data["files"][0]
+            assert "path" in f
+            assert "added" in f
+            assert "removed" in f
+
+    def test_get_diff_empty_registry(self, tmp_path, monkeypatch) -> None:
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        r = _call("get_diff", {"project": "alpha"})
+        assert not r.is_error
+        assert "No projects" in _text(r)
+
+    def test_get_diff_days_param(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_diff", {"project": "alpha", "days": 30})
+        assert not r.is_error
+
+# ---------------------------------------------------------------------------
+# get_drift
+# ---------------------------------------------------------------------------
+
+class TestGetDrift:
+    def _setup(self, tmp_path, monkeypatch):
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [
+            ("a.py", "feat: recent change", NOW - timedelta(hours=1)),
+        ])
+        write_registry(reg, {"alpha": alpha})
+
+    def test_get_drift_returns_text(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_drift", {"project": "alpha"})
+        assert not r.is_error
+
+
+# ---------------------------------------------------------------------------
+# get_drift
+# ---------------------------------------------------------------------------
+
+class TestGetDrift:
+    def _setup(self, tmp_path, monkeypatch):
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [("a.py", "feat: recent change", NOW - timedelta(hours=1))])
+        write_registry(reg, {"alpha": alpha})
+
+    def test_get_drift_returns_text(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_drift", {"project": "alpha"})
+        assert not r.is_error
+
+    def test_get_drift_unknown_project_no_error(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_drift", {"project": "ghost"})
+        assert not r.is_error
+        assert "Unknown project" in _text(r)
+
+    def test_get_drift_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_drift", {"project": "alpha", "format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert "project" in data
+        assert "stale" in data
+        assert "commits" in data
+        assert "files" in data
+
+    def test_get_drift_with_since_param(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_drift", {"project": "alpha", "since": "7d"})
+        assert not r.is_error
+
+    def test_get_drift_empty_registry(self, tmp_path, monkeypatch) -> None:
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        r = _call("get_drift", {"project": "alpha"})
+        assert not r.is_error
+        assert "No projects" in _text(r)
+
+
+# ---------------------------------------------------------------------------
+# get_predict
+# ---------------------------------------------------------------------------
+
+class TestGetPredict:
+    def _setup(self, tmp_path, monkeypatch):
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        alpha = tmp_path / "alpha"
+        make_repo(alpha, [
+            ("a.py", "feat: first", NOW - timedelta(hours=3)),
+            ("b.py", "feat: second", NOW - timedelta(hours=2)),
+        ])
+        write_registry(reg, {"alpha": alpha})
+
+    def test_get_predict_returns_text(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_predict", {"project": "alpha", "file": "a.py"})
+        assert not r.is_error
+
+    def test_get_predict_unknown_project_no_error(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_predict", {"project": "ghost", "file": "a.py"})
+        assert not r.is_error
+        assert "Unknown project" in _text(r)
+
+    def test_get_predict_unknown_file_no_error(self, tmp_path, monkeypatch) -> None:
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_predict", {"project": "alpha", "file": "doesnotexist.py"})
+        assert not r.is_error
+        assert "No commits" in _text(r)
+
+    def test_get_predict_json_valid(self, tmp_path, monkeypatch) -> None:
+        import json
+        self._setup(tmp_path, monkeypatch)
+        r = _call("get_predict", {"project": "alpha", "file": "a.py", "format": "json"})
+        assert not r.is_error
+        data = json.loads(_text(r))
+        assert "project" in data
+        assert "file" in data
+        assert "total_commits" in data
+        assert "co_changes" in data
+
+    def test_get_predict_empty_registry(self, tmp_path, monkeypatch) -> None:
+        reg = tmp_path / "projects.toml"
+        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
+        r = _call("get_predict", {"project": "alpha", "file": "a.py"})
+        assert not r.is_error
+        assert "No projects" in _text(r)
