@@ -15,7 +15,7 @@ import pytest
 from conftest import NOW, make_repo, write_registry
 from soma.mcp import mcp
 
-SECRET = "sk-abcdefghij0123456789ABCDEFGHIJ0123456789"
+SECRET = "sk-" + "0" * 40  # placeholder, not a real key — split + zero-entropy to avoid scanner false positives
 
 
 # ---------------------------------------------------------------------------
