@@ -465,26 +465,6 @@ class TestGetDrift:
         reg = tmp_path / "projects.toml"
         monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
         alpha = tmp_path / "alpha"
-        make_repo(alpha, [
-            ("a.py", "feat: recent change", NOW - timedelta(hours=1)),
-        ])
-        write_registry(reg, {"alpha": alpha})
-
-    def test_get_drift_returns_text(self, tmp_path, monkeypatch) -> None:
-        self._setup(tmp_path, monkeypatch)
-        r = _call("get_drift", {"project": "alpha"})
-        assert not r.is_error
-
-
-# ---------------------------------------------------------------------------
-# get_drift
-# ---------------------------------------------------------------------------
-
-class TestGetDrift:
-    def _setup(self, tmp_path, monkeypatch):
-        reg = tmp_path / "projects.toml"
-        monkeypatch.setenv("SOMA_PROJECTS_FILE", str(reg))
-        alpha = tmp_path / "alpha"
         make_repo(alpha, [("a.py", "feat: recent change", NOW - timedelta(hours=1))])
         write_registry(reg, {"alpha": alpha})
 
