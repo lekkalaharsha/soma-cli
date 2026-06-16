@@ -61,6 +61,16 @@ def main(
     if uninstall:
         typer.confirm("Uninstall soma-cli?", abort=True)
         purge = typer.confirm("Also delete ~/.soma/ registry data?", default=False)
+        if sys.platform == "win32":
+            if purge:
+                soma_dir = Path.home() / ".soma"
+                if soma_dir.exists():
+                    shutil.rmtree(soma_dir)
+                    console.print(f"[dim]Removed {soma_dir}[/dim]")
+            console.print("[yellow]Notice: On Windows, active executables cannot be deleted by their own process.[/yellow]")
+            console.print("Your SOMA registry has been cleaned. To complete the uninstallation, run:")
+            console.print("  [bold cyan]pip uninstall -y soma-cli[/bold cyan]")
+            raise typer.Exit()
         subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "soma-cli"])
         if purge:
             soma_dir = Path.home() / ".soma"
