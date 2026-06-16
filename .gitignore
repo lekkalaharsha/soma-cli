@@ -144,6 +144,7 @@ docs/SOMA_SCOPE_v2.md
 *.dll
 *.class
 node_modules/
+target/
 
 # ------------------------------------------------------------
 # VS CODE EXTENSION BUILD

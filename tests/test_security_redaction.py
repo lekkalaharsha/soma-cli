@@ -19,7 +19,7 @@ from soma.cli import app
 
 runner = CliRunner()
 
-SECRET = "sk-abcdefghij0123456789ABCDEFGHIJ0123456789"
+SECRET = "sk-" + "abcdefghij0123456789ABCDEFGHIJ0123456789"  # fake — split to defeat static scanners
 SECRET_ASSIGN = "api_key=supersecretvalue123456"
 
 
