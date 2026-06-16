@@ -192,11 +192,20 @@ class TestMcpToolSchema:
         return asyncio.run(mcp.list_tools())
 
     def test_four_tools_registered(self) -> None:
-        assert len(self._tools()) == 4
+        assert len(self._tools()) == 8
 
     def test_tool_names(self) -> None:
         names = {t.name for t in self._tools()}
-        assert names == {"list_projects", "get_context", "search_projects", "get_briefing"}
+        assert names == {
+            "list_projects",
+            "get_context",
+            "search_projects",
+            "get_briefing",
+            "get_history",
+            "get_diff",
+            "get_drift",
+            "get_predict",
+        }
 
     def test_get_context_has_project_param(self) -> None:
         tool = next(t for t in self._tools() if t.name == "get_context")
