@@ -29,6 +29,7 @@ from soma.commands.organise import tag, archive, unarchive, export, search, conf
 from soma.commands.power import activity, diff, doctor, tui, drift, predict, verify, why, team
 from soma.commands.integrations import hook_app, mcp_app
 from soma.commands.agent import agent_app
+from soma.commands.integrity_cmd import integrity
 
 app = typer.Typer(
     help="SOMA — System Omniscient Memory Agent (v1)",
@@ -129,8 +130,14 @@ app.command()(predict)
 app.command()(verify)
 app.command()(why)
 app.command()(team)
+app.command()(integrity)
 
 # Register sub-typer command groups
 app.add_typer(config_app, name="config")
 app.add_typer(hook_app, name="hook")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(agent_app, name="agent")
+
+
+if __name__ == "__main__":
+    app()

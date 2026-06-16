@@ -339,6 +339,14 @@ def _detect_blockers(
             f"Possible blocker detected: fix storm — {len(fixes)} fix commits in the last 24h"
         )
     blockers.extend(_todo_blockers(root, files))
+    # Integrity signals — co-change pattern violations (warn-level only, cap at 2)
+    try:
+        from soma.signals import check_integrity  # noqa: PLC0415
+        sigs = [s for s in check_integrity(root, days=3) if s.severity == "warn"]
+        for s in sigs[:2]:
+            blockers.append(f"Integrity signal detected: {s.message}")
+    except Exception:
+        pass  # signals are best-effort; never block context generation
     return blockers[:MAX_BLOCKERS]
 
 
@@ -600,20 +608,4 @@ def _suggested_focus(
         return f'Continue from last commit: "{message}"'
     if files:
         return f"Resume editing {files[0][0]} (most recently touched file)"
-    return "No recent activity detected — review project goals before starting"
-
-
-_SKIP_TOP_DIRS = frozenset(
-    {"tests", "test", "docs", "doc", "__pycache__", ".github", "node_modules", "dist", "build"}
-)
-
-
-def _top_dir(files: list[tuple[str, datetime]]) -> str | None:
-    dirs = [
-        rel.split("/")[0]
-        for rel, _ in files
-        if "/" in rel and rel.split("/")[0] not in _SKIP_TOP_DIRS
-    ]
-    if not dirs:
-        return None
-    return Counter(dirs).most_common(1)[0][0]
+    return "No recent activity detected — review project goals"
