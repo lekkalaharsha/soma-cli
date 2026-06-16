@@ -16,7 +16,7 @@ from soma.signals import (
     check_integrity,
 )
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 def _setup(tmp_path, monkeypatch, commits=None):

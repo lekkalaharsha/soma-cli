@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from conftest import NOW, make_repo, write_registry
 from soma.cli import app
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 def _setup(tmp_path, monkeypatch, commits=None):
