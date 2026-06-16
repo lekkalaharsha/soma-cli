@@ -4,16 +4,23 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish + release, e.g. v0.2.0"
+        required: true
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -25,7 +32,7 @@ jobs:
         run: pip install build twine
 
       - name: Run tests before publish
-        run: pip install -e "." pytest && pytest --tb=short -q
+        run: pip install -e ".[all]" pytest && pytest --tb=short -q
 
       - name: Build wheel and sdist
         run: python -m build
@@ -41,6 +48,13 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ github.ref_name }}
+          name: dist-${{ inputs.tag || github.ref_name }}
           path: dist/
           retention-days: 30
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: dist/*
