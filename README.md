@@ -144,7 +144,7 @@ pytest                              # 341 tests — must be green
 ### Verify Installation
 
 ```bash
-soma --version                      # soma-cli 0.3.1
+soma --version                      # soma-cli 0.4.0
 soma doctor                         # health check: git, config, registry
 ```
 
