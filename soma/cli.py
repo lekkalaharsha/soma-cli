@@ -76,7 +76,7 @@ def main(
                     shutil.rmtree(soma_dir)
                     console.print(f"[dim]Removed {soma_dir}[/dim]")
             console.print("[green]SOMA registry cleaned. Launching uninstaller window...[/green]")
-            cmd = f'cmd.exe /C "title SOMA Uninstaller & echo. & echo Uninstalling SOMA CLI... & ping 127.0.0.1 -n 2 >nul & \\"{sys.executable}\\" -m pip uninstall -y soma-cli & echo. & echo SOMA has been successfully uninstalled from your Python environment. & echo You can close this window now. & pause"'
+            cmd = f'cmd.exe /C "title SOMA Uninstaller & echo. & echo Uninstalling SOMA CLI... & ping 127.0.0.1 -n 2 >nul & "{sys.executable}" -m pip uninstall -y soma-cli & echo. & echo SOMA has been successfully uninstalled from your Python environment. & echo You can close this window now. & pause"'
             subprocess.Popen(
                 cmd,
                 creationflags=0x00000010  # CREATE_NEW_CONSOLE
