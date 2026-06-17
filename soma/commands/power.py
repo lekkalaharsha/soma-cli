@@ -319,7 +319,7 @@ def predict(
     root = Path(entry["root"])
     try:
         repo = Repo(root)
-        log = repo.git.log("--pretty=format:---COMMIT---", "--name-only")
+        log = repo.git.log("-n", "1000", "--pretty=format:---COMMIT---", "--name-only")
     except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)
@@ -388,8 +388,9 @@ def verify(
 ) -> None:
     """Fact-check a claim about a project against its git history.
 
-    Extracts file names and time references from your claim and checks them
-    against actual git log. Catches AI hallucinations about your codebase.
+    Uses simple keyword matching (matches filenames, tokens, and time ranges)
+    against the git log to verify claims. Note: this command does NOT perform
+    semantic natural language understanding (NLU) or make any LLM calls.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
     from git.exc import GitCommandError  # noqa: PLC0415
@@ -420,7 +421,7 @@ def verify(
     file_tokens = re.findall(r"[\w\-]+(?:[./][\w\-]+)+", claim)
     for token in file_tokens[:5]:
         try:
-            log = repo.git.log("--pretty=format:%ci %s", "--", token)
+            log = repo.git.log("-n", "1000", "--pretty=format:%ci %s", "--", token)
             if log:
                 first_line = log.splitlines()[0]
                 findings.append((f"'{token}' exists in git history", True, first_line[:80]))
@@ -447,7 +448,7 @@ def verify(
             since = (claimed_dt - window).strftime("%Y-%m-%dT%H:%M:%S")
             until = (claimed_dt + window).strftime("%Y-%m-%dT%H:%M:%S")
             try:
-                log = repo.git.log(f"--after={since}", f"--before={until}", "--pretty=format:%s", "--")
+                log = repo.git.log("-n", "1000", f"--after={since}", f"--before={until}", "--pretty=format:%s", "--")
                 if log:
                     findings.append((f"Activity around {m.group(0)}", True, log.splitlines()[0][:80]))
                 else:
@@ -486,8 +487,9 @@ def why(
 ) -> None:
     """Explain why a file exists and how it evolved, from git history alone.
 
-    No LLM needed — derives purpose from commit messages and change patterns.
-    Useful for onboarding agents or yourself onto unfamiliar code.
+    Derives developer themes and purpose strictly by checking word frequencies
+    in commit messages and git log follow-history. This command does NOT perform
+    semantic natural language understanding (NLU) or make any LLM calls.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
     from git.exc import GitCommandError  # noqa: PLC0415
@@ -506,7 +508,7 @@ def why(
     root = Path(entry["root"])
     try:
         repo = Repo(root)
-        log = repo.git.log("--follow", "--pretty=format:%ci\t%an\t%s", "--", file)
+        log = repo.git.log("-n", "1000", "--follow", "--pretty=format:%ci\t%an\t%s", "--", file)
     except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)

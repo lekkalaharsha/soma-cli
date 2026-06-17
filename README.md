@@ -15,39 +15,57 @@
 
 ---
 
-SOMA is a **local-first, on-demand CLI** that scans your git repositories and generates compact (~500 token) structured summaries — so you can paste one line into any LLM session and skip re-explaining your project from scratch.
+SOMA is a **local-first, on-demand CLI** that scans your git repositories, tracks co-change file coupling, and generates compact (~500 token) structured summaries for AI agents.
+
+Before touching any file, SOMA predicts which other files you'll likely need to edit based on your repo's history:
 
 ```bash
-soma context soma-v1-setup
+soma predict my-project soma/context.py
+```
+
+```
+soma predict — my-project / soma/context.py
+Found 12 commit(s) touching this file.
+
+If you edit this file, history says you'll likely also need:
+
+┌────────────────────────┬────────────┬────────┬─────────────────┐
+│ File                   │ Co-changed │ Out of │      Confidence │
+├────────────────────────┼────────────┼────────┼─────────────────┤
+│ tests/test_context.py  │         10 │     12 │   usually (83%) │
+│ soma/status.py         │          9 │     12 │   usually (75%) │
+└────────────────────────┴────────────┴────────┴─────────────────┘
+```
+
+These coupling rules automatically feed into context blocker heuristics. If you touch a file but forget to edit its co-change partner, SOMA flags the mismatch in your context summary:
+
+```bash
+soma context my-project
 ```
 
 ```markdown
-# soma-v1-setup — Context Summary (generated 2026-06-15 by SOMA)
+# my-project — Context Summary (generated 2026-06-17 by SOMA)
 
 **Branch:** main | **Last active:** 2h ago
-**Activity (7d):** 12 commits, 23 files changed
+**Activity (7d):** 1 commit, 1 file changed
 **Confidence:** high
 
 **What this is:** Local-first CLI that scans git repos and generates LLM context summaries.
 
 ## Recent work
-- feat: add hot-files list to suggested focus line (+8/-2) (2h ago)
-- fix: skip stale registry roots before parallel scan (+4/-1) (5h ago)
-- docs: expand README with MIT and contributing sections (+122/-2) (3h ago)
+- feat: optimize scanning logic (+8/-2) (2h ago)
 
 ## Files in motion
 - soma/context.py (2h ago)
-- soma/commands/core.py (5h ago)
-- README.md (3h ago)
 
 ## Possible blockers
-- None detected
+- [detected] touched soma/context.py but missed co-change partner tests/test_context.py (83% coupling)
 
 ## Suggested focus
-Continue recent work in `soma/` — last commit: "feat: add hot-files list". Hot files: `soma/context.py`, `soma/commands/core.py`
+Continue recent work in `soma/` — last commit: "feat: optimize scanning logic".
 ```
 
-Paste that. Your AI now knows exactly where you are.
+Paste that. Your AI now knows exactly what you've done and what you missed.
 
 ---
 
@@ -286,6 +304,24 @@ soma hook install my-project
 ```
 
 Perfect for **Antigravity, Codex CLI, and file-reading agents** that watch `AGENTS.md` / `CLAUDE.md` automatically.
+
+---
+
+### 👥 Team Sync — Serverless & Off-Grid
+
+SOMA implements a decentralized, daemonless team synchronization model. It requires no central database, cloud server, or background processes:
+- **Git as the Source of Truth**: By installing SOMA's git hooks (`soma hook install`), every team member's local commit automatically updates `CLAUDE.md` (or `AGENTS.md`) within the repository.
+- **Off-Grid Syncing**: When developers push their changes and others pull, the updated context files are shared via standard Git. Your AI agents read the latest context directly from the repository state.
+- **Zero Configuration**: No API keys, no network traffic to external servers, and zero setup for new team members beyond cloning the repo.
+
+---
+
+### 🧠 Agent Rulesets vs. Graphify
+
+SOMA's `soma agent init <project>` command generates a comprehensive `AGENT.md` profile mapping your project's shape. Here is how SOMA's approach differs from **Graphify**:
+- **Directory & Commit Coupling**: Unlike Graphify, which performs deep AST (Abstract Syntax Tree) parsing of source code to build strict dependency graphs, SOMA is lightweight and language-agnostic. It analyzes your project's actual directory layout and git logs to find social co-change coupling.
+- **No AST Parsing Overhead**: SOMA does not need language-specific parsers or compilers. It is extremely fast and runs in milliseconds on any type of codebase.
+- **Focus on AI Rulesets**: SOMA produces high-level, human-readable rulesets summarizing the actual developer activity and implicit coupling patterns, designed specifically for LLM context injection.
 
 ---
 

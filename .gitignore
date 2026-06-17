@@ -115,6 +115,7 @@ docs/file.tmp
 # ------------------------------------------------------------
 # SCRATCH / SESSION NOISE
 # ------------------------------------------------------------
+scratch/
 documentation.md
 suggest.md
 codex_section.md

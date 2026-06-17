@@ -166,6 +166,35 @@ class TestContextHeuristics:
         assert "Possible blocker detected:" in out
         assert "TODO/FIXME" in out
 
+    def test_missed_cochange_blocker_flagged(self, tmp_path: Path) -> None:
+        root = tmp_path / "cochange"
+        root.mkdir(parents=True, exist_ok=True)
+        import git
+        import os
+        repo = git.Repo.init(root, initial_branch="main")
+        with repo.config_writer() as cw:
+            cw.set_value("user", "name", "SOMA Test")
+            cw.set_value("user", "email", "soma@test.local")
+            
+        # Create 4 commits, each touching both a.py and b.py (older than 7 days)
+        for i in range(4):
+            (root / "a.py").write_text(f"a {i}\n")
+            (root / "b.py").write_text(f"b {i}\n")
+            repo.index.add(["a.py", "b.py"])
+            when = NOW - timedelta(days=15 - i)
+            stamp = f"{int(when.timestamp())} +0000"
+            repo.index.commit(f"chore: update {i}", author_date=stamp, commit_date=stamp)
+            
+        # Make an uncommitted change to a.py only (mtime = now)
+        (root / "a.py").write_text("uncommitted change\n")
+        
+        # Backdate b.py mtime to 40 days ago so it's not considered in motion
+        b_time = (NOW - timedelta(days=40)).timestamp()
+        os.utime(root / "b.py", (b_time, b_time))
+        
+        out = generate_context("cochange", root)
+        assert "Possible blocker detected: edited `a.py` but not `b.py`" in out
+
     def test_uncommitted_edits_not_reported_as_zero_files(self, tmp_path: Path) -> None:
         root = tmp_path / "quiet"
         # Commit is 12 days old; write_text left file mtimes at "now" —
