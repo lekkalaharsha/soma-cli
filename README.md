@@ -7,7 +7,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/soma-cli?color=brightgreen&logo=pypi&logoColor=white)](https://pypi.org/project/soma-cli/)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow?logo=opensourceinitiative&logoColor=white)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-341%20passing-brightgreen?logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/tests-435%20passing-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen?logo=github&logoColor=white)](https://github.com/aranrobotics-prog/soma-cli/actions)
 [![Code style](https://img.shields.io/badge/style-ruff-orange)](https://github.com/astral-sh/ruff)
 
@@ -136,7 +136,7 @@ python -m venv .venv && .venv\Scripts\activate
 python -m venv .venv && source .venv/bin/activate
 
 pip install -e ".[all]"
-pytest                              # 341 tests — must be green
+pytest                              # 435 tests — must be green
 ```
 
 ---
@@ -226,6 +226,13 @@ SOMA's context follows a **strict, stable format** designed to be maximally usef
 |---------|-------------|
 | `soma activity [--days N]` | ASCII heatmap of commit frequency |
 | `soma diff <project>` | Unified diff vs saved baseline |
+| `soma drift <project> [--since TS]` | View changes since last session or timestamp |
+| `soma predict <project> <file>` | Co-change coupling analysis for a file |
+| `soma verify <project> <claim>` | Fact-check a natural language claim against git history |
+| `soma why <project> <file>` | Explain a file's history and evolution from commits |
+| `soma team <project>` | Local author activity summary table |
+| `soma agent init <project> [--print]` | Generate AI agent ruleset (`AGENTS.md`) from project structure |
+| `soma agent sync <project>` | Update AI agent ruleset context |
 | `soma doctor` | Registry integrity, stale roots, config bounds |
 | `soma tui` | Textual interactive dashboard |
 
@@ -262,6 +269,10 @@ Claude now calls `get_context("my-project")` automatically before answering ques
 | `get_context(project)` | Any project-specific question |
 | `search_projects(keyword)` | "Which project uses Influx?" |
 | `get_briefing()` | "What should I work on today?" |
+| `get_history(project, ...)` | "Show me the commit history for this project" |
+| `get_diff(project, ...)` | "What lines of code changed in this project?" |
+| `get_drift(project, ...)` | "What changed since my last question/session?" |
+| `get_predict(project, file, ...)` | "Predict what files might change alongside this one" |
 
 Also works with: **Cursor · Windsurf · Zed · Open WebUI · Continue.dev · AnythingLLM**
 
@@ -355,7 +366,7 @@ Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full guide.
 
 ### Quick PR Checklist
 
-- [ ] `pytest` passes — zero failures (341+ tests)
+- [ ] `pytest` passes — zero failures (435+ tests)
 - [ ] New behaviour has tests in `tests/`
 - [ ] Commit follows Conventional Commits (`feat(scope): subject`)
 - [ ] No secrets, tokens, or API keys in the diff
