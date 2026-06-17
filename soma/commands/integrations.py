@@ -108,6 +108,14 @@ def mcp_start() -> None:
     except ImportError:
         console.print("[red]fastmcp not installed.[/red] Run: pip install 'soma-cli[mcp]'")
         raise typer.Exit(code=1)
+    if sys.stdin.isatty():
+        console.print(
+            "[yellow]soma mcp start[/yellow] is designed to be spawned by Claude Desktop, not run directly.\n"
+            "To connect SOMA to Claude Desktop, run:\n"
+            "  [bold cyan]soma mcp install[/bold cyan]\n"
+            "Then restart Claude Desktop."
+        )
+        raise typer.Exit()
     _mcp.run()
 
 
