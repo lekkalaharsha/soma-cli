@@ -40,7 +40,7 @@ jobs:
       - name: Publish to GitHub Packages
         run: |
           twine upload \
-            --repository-url https://upload.pkg.github.com/lekkalaharsha/soma-cli \
+            --repository-url https://upload.pkg.github.com/aranrobotics-prog/soma-cli \
             --username ${{ github.actor }} \
             --password ${{ secrets.GITHUB_TOKEN }} \
             dist/*
