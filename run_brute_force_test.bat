@@ -2,6 +2,11 @@
 setlocal enabledelayedexpansion
 set PYTHONIOENCODING=utf-8
 
+:: Automatically detect and prepend Python Scripts paths to PATH in case they are not in the environment
+for /f "usebackq tokens=*" %%i in (`python -c "import sys, os; print(os.path.join(sys.prefix, 'Scripts'))" 2^>nul`) do set "SYS_SCRIPTS=%%i"
+for /f "usebackq tokens=*" %%i in (`python -c "import sysconfig; print(sysconfig.get_path('scripts', 'nt_user'))" 2^>nul`) do set "USER_SCRIPTS=%%i"
+set "PATH=!SYS_SCRIPTS!;!USER_SCRIPTS!;!PATH!"
+
 echo ==========================================
 echo Starting SOMA CLI Brute Force Test Suite
 echo ==========================================
@@ -38,12 +43,16 @@ goto :start_tests
 :run_test
 set "CMD=%~1"
 echo Testing: !CMD!
-call !CMD! >nul 2>&1
+call !CMD! > "%TEMP%\soma_test_out.log" 2>&1
 if not errorlevel 1 (
     echo   [PASS]
     set /a PASSED_COUNT+=1
 ) else (
     echo   [FAIL] Exit Code: !ERRORLEVEL!
+    if exist "%TEMP%\soma_test_out.log" (
+        type "%TEMP%\soma_test_out.log"
+        echo.
+    )
     set "FAILED_COMMANDS=!FAILED_COMMANDS! [!CMD!]"
     set /a FAILED_COUNT+=1
 )
