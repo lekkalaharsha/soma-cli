@@ -138,7 +138,7 @@ def _generate_ruleset(project: str, root: Path) -> str:
     description = _project_description(root)
 
     lines = [
-        f"# {project} — SOMA Agent Ruleset",
+        f"# {project} - SOMA Agent Ruleset",
         f"<!-- Generated {date_str} by SOMA | run `soma agent sync {project}` to refresh -->",
         "",
         "## What this project is",
@@ -152,13 +152,13 @@ def _generate_ruleset(project: str, root: Path) -> str:
     if freq:
         lines += ["## Key files (by commit frequency)", ""]
         for path, count in freq[:8]:
-            lines.append(f"- `{path}` — edited {count}x")
+            lines.append(f"- `{path}` - edited {count}x")
         lines.append("")
 
     if copairs:
-        lines += ["## Co-change pairs (edit one → check the other)", ""]
+        lines += ["## Co-change pairs (edit one -> check the other)", ""]
         for a, b, n in copairs:
-            lines.append(f"- `{a}` ↔ `{b}` ({n} times)")
+            lines.append(f"- `{a}` <-> `{b}` ({n} times)")
         lines.append("")
 
     if recent:
@@ -214,14 +214,14 @@ def agent_init(
         ruleset = _generate_ruleset(project, root)
 
     if print_only:
-        typer.echo(ruleset)
+        console.print(ruleset, markup=False, highlight=False)
         return
 
     dest = output or (_AGENTS_DIR / f"{project}.md")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(ruleset, encoding="utf-8")
 
-    typer.echo(ruleset)
+    console.print(ruleset, markup=False, highlight=False)
     console.print(f"\n[dim]Saved to {dest}[/dim]")
 
 # ---------------------------------------------------------------------------
@@ -294,5 +294,5 @@ def _run_init(project: str, entry: dict, dest: Path) -> None:
         ruleset = _generate_ruleset(project, root)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(ruleset, encoding="utf-8")
-    typer.echo(ruleset)
-    console.print(f"\n[green]Saved[/green] → {dest}")
+    console.print(ruleset, markup=False, highlight=False)
+    console.print(f"\n[green]Saved[/green] -> {dest}")
