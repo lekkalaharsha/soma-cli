@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re)publish + release, e.g. v0.2.0"
+        description: "Existing tag to (re)publish + release, e.g. v0.4.0"
         required: true
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
       - name: Publish to GitHub Packages
         run: |
           twine upload \
-            --repository-url https://upload.pkg.github.com/ \
+            --repository-url https://upload.pkg.github.com/lekkalaharsha/soma-cli \
             --username ${{ github.actor }} \
             --password ${{ secrets.GITHUB_TOKEN }} \
             dist/*
