@@ -7,7 +7,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/soma-cli?color=brightgreen&logo=pypi&logoColor=white)](https://pypi.org/project/soma-cli/)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow?logo=opensourceinitiative&logoColor=white)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-435%20passing-brightgreen?logo=pytest&logoColor=white)](tests/)
+[![Tests](https://img.shields.io/badge/tests-436%20passing-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen?logo=github&logoColor=white)](https://github.com/aranrobotics-prog/soma-cli/actions)
 [![Code style](https://img.shields.io/badge/style-ruff-orange)](https://github.com/astral-sh/ruff)
 
@@ -154,7 +154,7 @@ python -m venv .venv && .venv\Scripts\activate
 python -m venv .venv && source .venv/bin/activate
 
 pip install -e ".[all]"
-pytest                              # 435 tests — must be green
+pytest                              # 436 tests — must be green
 ```
 
 ---
@@ -402,7 +402,7 @@ Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full guide.
 
 ### Quick PR Checklist
 
-- [ ] `pytest` passes — zero failures (435+ tests)
+- [ ] `pytest` passes — zero failures (436+ tests)
 - [ ] New behaviour has tests in `tests/`
 - [ ] Commit follows Conventional Commits (`feat(scope): subject`)
 - [ ] No secrets, tokens, or API keys in the diff
