@@ -75,9 +75,12 @@ def main(
                 if soma_dir.exists():
                     shutil.rmtree(soma_dir)
                     console.print(f"[dim]Removed {soma_dir}[/dim]")
-            console.print("[yellow]Notice: On Windows, active executables cannot be deleted by their own process.[/yellow]")
-            console.print("Your SOMA registry has been cleaned. To complete the uninstallation, run:")
-            console.print("  [bold cyan]pip uninstall -y soma-cli[/bold cyan]")
+            console.print("[green]SOMA registry cleaned. Launching uninstaller window...[/green]")
+            cmd = f'cmd.exe /C "title SOMA Uninstaller & echo. & echo Uninstalling SOMA CLI... & ping 127.0.0.1 -n 2 >nul & \\"{sys.executable}\\" -m pip uninstall -y soma-cli & echo. & echo SOMA has been successfully uninstalled from your Python environment. & echo You can close this window now. & pause"'
+            subprocess.Popen(
+                cmd,
+                creationflags=0x00000010  # CREATE_NEW_CONSOLE
+            )
             raise typer.Exit()
         subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "soma-cli"])
         if purge:
