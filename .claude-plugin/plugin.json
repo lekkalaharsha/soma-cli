@@ -1,0 +1,10 @@
+{
+  "name": "soma-cli",
+  "version": "0.3.1",
+  "description": "Local-first CLI that scans git repos and generates compact ~500 token LLM context summaries — no copy-paste, always current.",
+  "keywords": ["git", "context", "developer-tools", "productivity", "mcp"],
+  "author": { "name": "lekkalaharsha" },
+  "homepage": "https://github.com/lekkalaharsha/soma-cli",
+  "repository": "https://github.com/lekkalaharsha/soma-cli",
+  "license": "MIT"
+}

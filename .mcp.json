@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "soma": {
+      "command": "uvx",
+      "args": ["--from", "soma-cli[mcp]", "soma", "mcp", "start"]
+    }
+  }
+}
