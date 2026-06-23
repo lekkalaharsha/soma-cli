@@ -12,7 +12,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from soma.detect import (
-    find_git_roots, find_project_roots, forget_project, load_registry,
+    auto_scan, find_git_roots, find_project_roots, forget_project, load_registry,
     register_projects, rename_project,
 )
 from soma.notes import rename_notes

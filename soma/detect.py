@@ -253,6 +253,59 @@ def _save_registry(registry: dict[str, dict], path: Path) -> None:
         tomli_w.dump({"projects": registry}, f)
 
 
+def auto_scan(path: Path | None = None) -> int:
+    """Scan home dir for new project roots and merge them silently.
+
+    Returns the number of new projects registered. Skips when:
+    - registry path is overridden by env var (test mode)
+    - scan already ran in the last 30 seconds
+    """
+    import os as _os
+    import shutil
+    import time as _time
+
+    scan_path = path or registry_path()
+    if _os.environ.get("SOMA_PROJECTS_FILE"):
+        return 0  # test mode — registry path is overridden
+
+    # Throttle: don't re-scan more than once per 30s
+    stamp_file = SOMA_DIR / ".last_scan"
+    try:
+        if stamp_file.exists() and _time.time() - stamp_file.stat().st_mtime < 30:
+            return 0
+    except OSError:
+        pass
+
+    base = Path.home()
+    git_available = shutil.which("git") is not None
+    if not base.is_dir():
+        return 0
+    existing = load_registry(scan_path)
+    existing_roots = {e.get("root") for e in existing.values() if e.get("root")}
+
+    if git_available:
+        candidates = find_git_roots(base)
+    else:
+        candidates = find_project_roots(base)
+
+    new_roots = [r for r in candidates if str(r) not in existing_roots]
+    if not new_roots:
+        try:
+            stamp_file.parent.mkdir(parents=True, exist_ok=True)
+            stamp_file.write_text("")
+        except OSError:
+            pass
+        return 0
+
+    new_projects, _ = register_projects(new_roots, scan_path)
+    try:
+        stamp_file.parent.mkdir(parents=True, exist_ok=True)
+        stamp_file.write_text("")
+    except OSError:
+        pass
+    return len(new_projects)
+
+
 def _unique_name(base_name: str, registry: dict[str, dict]) -> str:
     if base_name not in registry:
         return base_name

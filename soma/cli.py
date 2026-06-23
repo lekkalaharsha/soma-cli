@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from soma.detect import load_registry
+from soma.detect import auto_scan, load_registry
 from soma.runtime import registry_path
 from soma.status import collect_statuses, humanize_delta
 
@@ -55,6 +55,7 @@ def main(
     """Your repos already remember everything. Now they can tell your AI."""
     if not shutil.which("git"):
         console.print("[yellow]Warning:[/yellow] git not found on PATH — commands will show filesystem activity only (no commits, no branches).")
+    auto_scan()  # silently discover new projects before every command
     if version:
         typer.echo(f"soma-cli {_VERSION}")
         raise typer.Exit()
