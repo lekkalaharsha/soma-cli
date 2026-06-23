@@ -1,4 +1,4 @@
-name: Publish to GitHub Packages
+name: Publish to PyPI
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -37,13 +37,10 @@ jobs:
       - name: Build wheel and sdist
         run: python -m build
 
-      - name: Publish to GitHub Packages
-        run: |
-          twine upload \
-            --repository-url https://upload.pkg.github.com/aranrobotics-prog/soma-cli \
-            --username ${{ github.actor }} \
-            --password ${{ secrets.GITHUB_TOKEN }} \
-            dist/*
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
