@@ -130,11 +130,10 @@ PHASEV2.CSV
 .codex/
 
 # ------------------------------------------------------------
-# DOCS — DRAFTS / RUNTIME (internal, not for contributors)
+# DOCS — only USER_GUIDE.md is tracked
 # ------------------------------------------------------------
-docs/HANDOFF_RUNTIME_REGISTRY.md
-docs/NEXT_PHASE_IDEA.md
-docs/SOMA_SCOPE_v2.md
+docs/*.md
+!docs/USER_GUIDE.md
 
 # ------------------------------------------------------------
 # BUILD ARTIFACTS
