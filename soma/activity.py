@@ -25,14 +25,14 @@ def fetch_daily_commits(root: Path, days: int, today: date | None = None) -> dic
     since = today - timedelta(days=days - 1)
     try:
         from git import Repo  # noqa: PLC0415
-        from git.exc import GitCommandError, InvalidGitRepositoryError, NoSuchPathError  # noqa: PLC0415
+        from git.exc import GitCommandError, GitCommandNotFound, InvalidGitRepositoryError, NoSuchPathError  # noqa: PLC0415
         repo = Repo(root)
         out = repo.git.log(
             f"--after={since.isoformat()}T00:00:00",
             "--format=%ad",
             "--date=format:%Y-%m-%d",
         )
-    except (GitCommandError, InvalidGitRepositoryError, NoSuchPathError, OSError):
+    except (GitCommandError, GitCommandNotFound, InvalidGitRepositoryError, NoSuchPathError, OSError):
         return {}
     counts: dict[date, int] = defaultdict(int)
     for line in out.splitlines():

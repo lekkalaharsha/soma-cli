@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from git import InvalidGitRepositoryError, NoSuchPathError, Repo
-from git.exc import GitCommandError
+from git.exc import GitCommandError, GitCommandNotFound
 from pydantic import BaseModel
 
 from soma.sanitize import redact
@@ -62,7 +62,7 @@ def _project_events(name: str, root: Path, days: int) -> list[HistoryEvent]:
     try:
         repo = Repo(root)
         out = repo.git.log(f"--since={days}.days.ago", "--pretty=format:%ct%x09%s")
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         return []
     events: list[HistoryEvent] = []
     for line in out.splitlines():

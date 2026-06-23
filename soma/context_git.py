@@ -17,11 +17,11 @@ def _fetch_commit_stats(root: Path, n: int) -> list[tuple[int, int]]:
     """(insertions, deletions) for the last n commits. Empty list on any error."""
     try:
         from git import Repo  # noqa: PLC0415
-        from git.exc import GitCommandError, InvalidGitRepositoryError  # noqa: PLC0415
+        from git.exc import GitCommandError, GitCommandNotFound, InvalidGitRepositoryError  # noqa: PLC0415
 
         repo = Repo(root)
         out = repo.git.log(f"--max-count={n}", "--pretty=format:COMMIT", "--shortstat")
-    except (GitCommandError, InvalidGitRepositoryError, OSError):
+    except (GitCommandError, InvalidGitRepositoryError, GitCommandNotFound, OSError):
         return []
     stats: list[tuple[int, int]] = []
     ins, dels = 0, 0

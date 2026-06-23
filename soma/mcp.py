@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from git.exc import GitCommandNotFound
+
 from fastmcp import FastMCP
 
 from soma.commands.power import _last_seen, _save_session
@@ -183,7 +185,7 @@ def get_diff(project: str, days: int = 7, format: str = "text") -> str:
     try:
         repo = Repo(root)
         raw = repo.git.log(f"--since={days}.days.ago", "--numstat", "--pretty=format:")
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         return f"Could not read git history for '{project}'."
 
     file_stats: dict[str, dict[str, int]] = {}
@@ -385,7 +387,7 @@ def get_drift(project: str, since: str | None = None, format: str = "text") -> s
         repo = Repo(root)
         since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%S")
         log = repo.git.log(f"--since={since_str}", "--pretty=format:%h %s", "--name-only")
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         return f"Cannot read git history for '{project}'."
 
     if not log.strip():
@@ -461,7 +463,7 @@ def get_predict(project: str, file: str, format: str = "text") -> str:
     try:
         repo = Repo(root)
         log = repo.git.log("--pretty=format:---COMMIT---", "--name-only")
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         return f"Cannot read git history for '{project}'."
 
     commits_files: list[set[str]] = []

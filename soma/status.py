@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from git import InvalidGitRepositoryError, NoSuchPathError, Repo
-from git.exc import GitCommandError
+from git.exc import GitCommandError, GitCommandNotFound
 from pydantic import BaseModel, Field
 
 from soma.filters import is_watched, should_ignore
@@ -66,7 +66,7 @@ def get_status(name: str, root: Path, since: datetime | None = None) -> ProjectS
             status.commits_7d, status.files_changed_7d = _activity_7d(repo)
         if status.recent_commits:
             git_time = status.recent_commits[0].when
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         pass  # non-git or broken repo — mtimes still give us last_active
     if git_time is not None and (mtime is None or git_time >= mtime):
         status.last_active = git_time

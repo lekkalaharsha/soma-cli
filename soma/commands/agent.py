@@ -243,7 +243,7 @@ def agent_sync(
     Regenerates automatically when the threshold is exceeded.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo
-    from git.exc import GitCommandError
+    from git.exc import GitCommandError, GitCommandNotFound
 
     registry = load_registry(registry_path())
     if not registry:
@@ -270,7 +270,7 @@ def agent_sync(
         since_str = last_sync.strftime("%Y-%m-%dT%H:%M:%S")
         raw = repo.git.log(f"--since={since_str}", "--pretty=format:%h")
         new_commits = len([l for l in raw.splitlines() if l.strip()])
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)
 

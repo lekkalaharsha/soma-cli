@@ -12,7 +12,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from soma.detect import (
-    find_git_roots, forget_project, load_registry,
+    find_git_roots, find_project_roots, forget_project, load_registry,
     register_projects, rename_project,
 )
 from soma.notes import rename_notes
@@ -29,17 +29,23 @@ def init(
     ),
 ) -> None:
     """Scan ~/ for git repos and register projects."""
+    import shutil
     scan_base = (base or Path.home()).resolve()
     if not scan_base.is_dir():
         console.print(f"[red]Not a directory:[/red] {scan_base}")
         raise typer.Exit(code=1)
 
-    with console.status(f"Scanning {scan_base} for git repos..."):
-        roots = find_git_roots(scan_base)
+    git_available = shutil.which("git") is not None
+    if git_available:
+        with console.status(f"Scanning {scan_base} for git repos..."):
+            roots = find_git_roots(scan_base)
+    else:
+        with console.status(f"Scanning {scan_base} for project directories (git not found on PATH)..."):
+            roots = find_project_roots(scan_base)
     new, known = register_projects(roots)
 
     if not roots:
-        console.print(f"No git repos found under {scan_base} (max depth 4).")
+        console.print(f"No projects found under {scan_base} (max depth 4).")
         raise typer.Exit()
 
     table = Table(title=f"SOMA — {len(roots)} project(s) detected")

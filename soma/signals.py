@@ -205,18 +205,18 @@ def check_integrity(root: Path, days: int = 7) -> list[IntegritySignal]:
     Returns a list of IntegritySignals, empty if everything looks clean.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
-    from git.exc import GitCommandError  # noqa: PLC0415
+    from git.exc import GitCommandError, GitCommandNotFound  # noqa: PLC0415
 
     try:
         repo = Repo(root)
-    except (InvalidGitRepositoryError, NoSuchPathError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandNotFound):
         return []
 
     # Build full-history co-change model
     try:
         raw_full = repo.git.log("--name-only", "--pretty=format:---COMMIT---")
         model, touch_count = _build_cochange_model(raw_full)
-    except GitCommandError:
+    except (GitCommandError, GitCommandNotFound):
         return []
 
     # Collect recent commits (files + messages)
@@ -224,7 +224,7 @@ def check_integrity(root: Path, days: int = 7) -> list[IntegritySignal]:
         raw_recent = repo.git.log(
             f"--since={days}.days.ago", "--name-only", "--pretty=format:MSG:%s"
         )
-    except GitCommandError:
+    except (GitCommandError, GitCommandNotFound):
         return []
 
     recent_commits: list[set[str]] = []

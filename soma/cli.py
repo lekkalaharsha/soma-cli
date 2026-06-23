@@ -53,6 +53,8 @@ def main(
     uninstall: bool = typer.Option(False, "--uninstall", help="Uninstall soma-cli and exit.", is_eager=True),
 ) -> None:
     """Your repos already remember everything. Now they can tell your AI."""
+    if not shutil.which("git"):
+        console.print("[yellow]Warning:[/yellow] git not found on PATH — commands will show filesystem activity only (no commits, no branches).")
     if version:
         typer.echo(f"soma-cli {_VERSION}")
         raise typer.Exit()

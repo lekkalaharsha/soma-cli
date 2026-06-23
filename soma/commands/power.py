@@ -218,7 +218,7 @@ def drift(
     Use this to catch up after a break: new commits, files touched, branch.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
-    from git.exc import GitCommandError  # noqa: PLC0415
+    from git.exc import GitCommandError, GitCommandNotFound  # noqa: PLC0415
     from soma.cli_helpers import _parse_since  # noqa: PLC0415
     from soma.sanitize import redact  # noqa: PLC0415
     from soma.status import humanize_delta  # noqa: PLC0415
@@ -252,7 +252,7 @@ def drift(
         repo = Repo(root)
         since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%S")
         log = repo.git.log(f"--since={since_str}", "--pretty=format:%h %s", "--name-only")
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)
 
@@ -305,7 +305,7 @@ def predict(
     Helps agents understand implicit coupling before touching code.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
-    from git.exc import GitCommandError  # noqa: PLC0415
+    from git.exc import GitCommandError, GitCommandNotFound  # noqa: PLC0415
 
     registry = load_registry(registry_path())
     if not registry:
@@ -320,7 +320,7 @@ def predict(
     try:
         repo = Repo(root)
         log = repo.git.log("-n", "1000", "--pretty=format:---COMMIT---", "--name-only")
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)
 
@@ -393,7 +393,7 @@ def verify(
     semantic natural language understanding (NLU) or make any LLM calls.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
-    from git.exc import GitCommandError  # noqa: PLC0415
+    from git.exc import GitCommandError, GitCommandNotFound  # noqa: PLC0415
     from soma.status import humanize_delta  # noqa: PLC0415
 
     registry = load_registry(registry_path())
@@ -492,7 +492,7 @@ def why(
     semantic natural language understanding (NLU) or make any LLM calls.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
-    from git.exc import GitCommandError  # noqa: PLC0415
+    from git.exc import GitCommandError, GitCommandNotFound  # noqa: PLC0415
     from soma.sanitize import redact  # noqa: PLC0415
     from soma.status import humanize_delta  # noqa: PLC0415
 
@@ -509,7 +509,7 @@ def why(
     try:
         repo = Repo(root)
         log = repo.git.log("-n", "1000", "--follow", "--pretty=format:%ci\t%an\t%s", "--", file)
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)
 
@@ -566,7 +566,7 @@ def team(
     Useful for understanding team activity before making changes.
     """
     from git import InvalidGitRepositoryError, NoSuchPathError, Repo  # noqa: PLC0415
-    from git.exc import GitCommandError  # noqa: PLC0415
+    from git.exc import GitCommandError, GitCommandNotFound  # noqa: PLC0415
     from soma.sanitize import redact  # noqa: PLC0415
     from soma.status import humanize_delta  # noqa: PLC0415
 
@@ -586,7 +586,7 @@ def team(
             f"--since={days}.days.ago",
             "--pretty=format:%an\t%ae\t%ci\t%s",
         )
-    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError):
+    except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError, GitCommandNotFound):
         console.print(f"[red]Cannot read git history for '{escape(project)}'.[/red]")
         raise typer.Exit(code=1)
 

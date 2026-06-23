@@ -34,6 +34,17 @@ def find_git_roots(base: Path, max_depth: int = DEFAULT_MAX_DEPTH) -> list[Path]
     return roots
 
 
+def find_project_roots(base: Path, max_depth: int = DEFAULT_MAX_DEPTH) -> list[Path]:
+    """Return all non-ignored directories under base (git or not).
+
+    Used when git is not installed — registers directories as projects
+    so status/context can show filesystem activity.
+    """
+    roots: list[Path] = []
+    _scan_all(base.resolve(), depth=0, max_depth=max_depth, roots=roots)
+    return roots
+
+
 def _scan(directory: Path, depth: int, max_depth: int, roots: list[Path]) -> None:
     try:
         with os.scandir(directory) as it:
@@ -56,6 +67,53 @@ def _scan(directory: Path, depth: int, max_depth: int, roots: list[Path]) -> Non
         if should_ignore(entry.name):
             continue
         _scan(Path(entry.path), depth + 1, max_depth, roots)
+
+
+def _scan_all(directory: Path, depth: int, max_depth: int, roots: list[Path]) -> None:
+    """Scan directories regardless of .git presence."""
+    try:
+        with os.scandir(directory) as it:
+            entries = list(it)
+    except OSError:
+        return
+    if any(e.name == ".git" for e in entries):
+        roots.append(directory)
+        return
+    if depth == 0:
+        root_candidates = [e for e in entries if e.is_dir(follow_symlinks=False)
+                           and not e.name.startswith(".")
+                           and not should_ignore(e.name)]
+        for e in root_candidates:
+            _scan_all_dirs(Path(e.path), depth + 1, max_depth, roots)
+    elif depth < max_depth:
+        _scan_all_dirs(directory, depth, max_depth, roots)
+
+
+def _scan_all_dirs(directory: Path, depth: int, max_depth: int, roots: list[Path]) -> None:
+    """Collect all non-hidden, non-ignored directories at this level."""
+    try:
+        with os.scandir(directory) as it:
+            entries = list(it)
+    except OSError:
+        return
+    has_nested_repo = any(e.name == ".git" for e in entries)
+    if has_nested_repo:
+        roots.append(directory)
+        return
+    roots.append(directory)
+    if depth >= max_depth:
+        return
+    for entry in entries:
+        try:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        if entry.name.startswith("."):
+            continue
+        if should_ignore(entry.name):
+            continue
+        _scan_all_dirs(Path(entry.path), depth + 1, max_depth, roots)
 
 
 def _registry_path(path: Path | None = None) -> Path:
