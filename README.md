@@ -85,6 +85,7 @@ Every time you start a new AI session you re-explain the same project. What bran
 ## ⚡ Key Features
 
 - **Live git context** — branch, commits, files changed, last active — from the actual repo, not a stale note
+- **Works without git** — if git is not on PATH, SOMA degrades gracefully using file mtimes (no commits/branches)
 - **350–600 token budget** — fits in any model's context without burning your limit
 - **Blocker detection** — stale branches, old TODOs, fix-storm commits flagged as heuristics
 - **MCP server** — Claude Desktop and Cursor query your repos automatically via `soma mcp install`
@@ -264,6 +265,20 @@ SOMA's context follows a **strict, stable format** designed to be maximally usef
 | `soma config reset <key>` | Reset to default |
 
 **Config keys:** `dormant_days` (30) · `token_ceiling` (600) · `max_files` (8) · `max_commits` (5) · `scan_timeout` (5)
+
+---
+
+## 💾 Data Storage
+
+SOMA stores everything in `~/.soma/`:
+
+| File | Purpose |
+|------|---------|
+| `~/.soma/projects.toml` | Project registry — names, root paths, tags, notes |
+| `~/.soma/baselines/` | Saved diff baselines per project |
+| `~/.soma/sessions.toml` | Last-seen timestamps per project (for `soma drift`) |
+
+No database. No network calls. No cloud. Plain TOML — readable, portable, versionable.
 
 ---
 
