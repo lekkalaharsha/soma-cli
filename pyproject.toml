@@ -1,6 +1,6 @@
 [project]
 name = "soma-cli"
-version = "0.4.0"
+version = "0.4.1"
 description = "Your repos already remember everything. Now they can tell your AI."
 readme = "README.md"
 license = { text = "MIT" }
